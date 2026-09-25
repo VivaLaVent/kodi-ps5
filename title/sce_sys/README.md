@@ -37,3 +37,5 @@ And one that stays in place:
 
 - `kodi-debug` - debug-level logging (kodi.log and klog). Slows Kodi down;
   remove it again when done.
+- `kodi-swdecode` - use software (FFmpeg) video decoding only, e.g. to
+  compare with the hardware decoder.

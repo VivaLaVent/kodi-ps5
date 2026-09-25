@@ -20,10 +20,10 @@ working on 4.03 (ItemzFlow + etaHEN 2.3b).
 
 | Works | Not yet |
 | --- | --- |
-| Estuary GUI at 1080p60 via OpenGL 4.6 on the PS5 GPU | Hardware video decoding (software FFmpeg for now) |
+| Estuary GUI at 1080p60 via OpenGL 4.6 on the PS5 GPU | HEVC Main10 / HDR in hardware (10-bit uses FFmpeg) |
 | DualSense navigation (as keyboard events) | Internet access via curl (add-on repository, online streams) |
 | Audio (UI sounds, playback) | Python add-ons (Python is not built yet) |
-| Local video playback (software decoding) | Binary add-ons (no `dlopen` in a title) |
+| Video playback: H.264 and HEVC Main in hardware (VideoDec2), everything else in FFmpeg | Binary add-ons (no `dlopen` in a title) |
 | SMB2/3 and NFS network sources, UPnP | Listing under the Media tab (the GL driver fails in that sandbox) |
 | Thumbnails, databases, settings | Network browsing of `smb://` (enter the server's IP) |
 
@@ -40,6 +40,7 @@ and the scripts that set up the cross toolchain, configure, build and package.
 | Audio | `AESinkPS5`: 48 kHz stereo on the system audio port; the blocking write is the clock |
 | Input | `PS5PadInput`: DualSense polled at 125 Hz, mapped to Kodi keyboard events |
 | Network sources | `smb://` on libsmb2 (`xbmc/platform/ps5/filesystem`), NFS on libnfs, UPnP |
+| Video decoding | `CDVDVideoCodecPS5` on the hardware decoder (libSceVideodec2, `xbmc/platform/ps5/video`), NV12 into Kodi's GL renderer |
 | Logging | every log line goes to klog (`PS5InterfaceForCLog`) as well as `kodi.log` |
 | C library gaps | `shims/native-app/`: resolver (`getaddrinfo` on `sceNetResolver`), locale, directory reading, time, thread stacks, … |
 | Packaging | ps5-opengl's native-app template: `eboot.bin` + `sce_module/` + `sce_sys/` + Kodi's data in `share/` |
@@ -107,6 +108,7 @@ processes, so FTP cannot delete Kodi's data — these let Kodi do it:
 | `kodi-reset` | wipe Kodi's data once, then start fresh |
 | `kodi-uninstall` | wipe Kodi's data and quit; the title folder can then be deleted over FTP |
 | `kodi-debug` | debug-level logging (slower; remove when done) |
+| `kodi-swdecode` | software (FFmpeg) video decoding only, no hardware decoder |
 
 ### Adding network sources
 
@@ -142,12 +144,14 @@ overlay/                        copied onto a Kodi checkout by scripts/20-config
   xbmc/platform/ps5/            main.cpp, CPlatformPS5, CPU/GPU info, klog log sink, strptime
     audio/ input/ network/ storage/    AESinkPS5, PS5PadInput, NetworkPS5, PS5StorageProvider
     filesystem/                 smb:// over libsmb2 (SMB2Session, CSMB2File, CSMB2Directory)
+    video/                      hardware decoder: CVideoDec2 (libSceVideodec2) + CDVDVideoCodecPS5
     sce/                        clean-room prototypes of the Sony libraries used
   xbmc/windowing/ps5/           CWinSystemPS5, CWinSystemPS5GLContext (EGL)
 patches/kodi/                   small Kodi patches (charset, SMB hooks, log sink, …)
 patches/                        fix for the native-app template's ELF converter
 shims/native-app/               C library gaps, compiled into the title
 shims/libuuid/ shims/libprocstat/   minimal libraries for crossguid and exiv2
+shims/sce_stubs/                link stub for libSceVideodec2 (the SDK has none)
 pacbrew/ffmpeg/                 PKGBUILD for FFmpeg 7.1 (scripts/16)
 scripts/                        00 setup · 01 pacbrew resume · 10–16 dependencies · 20 configure · 30 package
 title/sce_sys/                  Kodi's icon; see the README there for the switches
@@ -174,8 +178,8 @@ Things that differ from a FreeBSD desktop and cost a crash each to find:
 
 ## Roadmap
 
-1. Release (optimised) builds, then internet access (curl/TLS).
-2. Hardware video decoding with VideoDec2, then HDR.
+1. Hardware decoding: HEVC Main10 and HDR, zero-copy into GL.
+2. Internet access (curl/TLS).
 3. A real DualSense joystick driver, on-screen keyboard, video sync.
 4. Python, binary add-ons, release packaging.
 

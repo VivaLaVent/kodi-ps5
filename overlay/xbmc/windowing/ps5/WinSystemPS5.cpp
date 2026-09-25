@@ -15,6 +15,7 @@
 #include "windowing/GraphicContext.h"
 
 #include "platform/ps5/input/PS5PadInput.h"
+#include "platform/ps5/video/VideoCodecRegistration.h"
 
 #include <algorithm>
 #include <mutex>
@@ -32,6 +33,9 @@ bool CWinSystemPS5::InitWindowSystem()
 
   m_padInput = std::make_unique<KODI::PLATFORM::PS5::CPadInput>();
   m_padInput->Start();
+
+  // hardware H.264/HEVC decoding (falls back to FFmpeg per stream)
+  KODI::PLATFORM::PS5::RegisterVideoCodecs();
   return true;
 }
 

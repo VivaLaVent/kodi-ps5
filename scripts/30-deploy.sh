@@ -81,6 +81,14 @@ rm -f "$APP/.deps/native/ps5-payload-sdk/target/lib/libScePosixForWebKit.so"
 # title (umask() from it jumped to address 0). Anything only it provides now
 # shows up as undefined at link time instead of crashing at run time.
 rm -f "$APP/.deps/native/ps5-payload-sdk/target/lib/libkernel_sys.so"
+# The SDK has no link stub for the hardware video decoder (libSceVideodec2,
+# used by xbmc/platform/ps5/video): build one in the SDK's stub style.
+STUBDIR="$APP/.deps/native/ps5-payload-sdk/target/lib"
+"$PS5_PAYLOAD_SDK/bin/prospero-clang" -ffreestanding -fno-builtin -nostdlib -fPIC \
+  -c -o "$STAGE/libSceVideodec2.o" "$HERE/shims/sce_stubs/libSceVideodec2.c"
+"$LLD" -m elf_x86_64 -shared -soname libSceVideodec2.sprx \
+  -o "$STUBDIR/libSceVideodec2.so" "$STAGE/libSceVideodec2.o"
+[ -s "$STUBDIR/libSceVideodec2.so" ] || { echo "!! could not build the libSceVideodec2 stub"; exit 1; }
 # app-owned malloc heap: the demo's 128 MiB is far too small for Kodi
 sed -i "s/#define PS5_OPENGL_HEAP_SIZE (128u \* 1024u \* 1024u)/#define PS5_OPENGL_HEAP_SIZE (${HEAP_MIB}ull * 1024ull * 1024ull)/" "$APP/src/app_heap.c"
 grep -q "PS5_OPENGL_HEAP_SIZE (${HEAP_MIB}ull" "$APP/src/app_heap.c" || { echo "!! could not raise the heap size in app_heap.c"; exit 1; }
