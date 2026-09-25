@@ -14,9 +14,16 @@ export PS5_OPENGL_PREFIX="${PS5_OPENGL_PREFIX:-/opt/ps5-opengl-gl46}"
 echo "==> applying Kodi additions to $SRC"
 python3 "$HERE/patches/ps5-opengl/kodi-additions.py" "$SRC"
 
-echo "==> rebuilding the SDK (incremental; Mesa itself is unchanged)"
-( cd "$SRC" && make sdk-gl46 ) > "$WORK/ps5-opengl-build.log" 2>&1 || {
+# Our additions live in the runtime (src/platform, src/egl), which the SDK
+# installer rebuilds itself; Mesa and the shader compiler are unchanged and
+# already built by 00-setup-wsl.sh. So run the installer directly rather than
+# "make sdk-gl46", whose host-side compiler self-tests are not needed here.
+echo "==> rebuilding the runtime and packaging the SDK"
+( cd "$SRC" && bash toolchain/install-ps5-opengl-gl46.sh build/sdk/ps5-opengl-gl46 ) \
+  > "$WORK/ps5-opengl-build.log" 2>&1 || {
   echo "!! SDK build failed, last lines of $WORK/ps5-opengl-build.log:"; tail -25 "$WORK/ps5-opengl-build.log"; exit 1; }
+( cd "$SRC" && python3 tests/ps5/verify_gl46_link_surface.py ) >> "$WORK/ps5-opengl-build.log" 2>&1 \
+  || echo "   note: verify_gl46_link_surface.py reported a problem (see the log)"
 
 echo "==> installing into $PS5_OPENGL_PREFIX"
 sudo cp -a "$SRC/build/sdk/ps5-opengl-gl46/." "$PS5_OPENGL_PREFIX/"
