@@ -1,0 +1,21 @@
+# build products never live in this repo (Kodi source, build and stage dirs are outside it)
+build/
+stage/
+*.o
+*.a
+*.so
+*.elf
+*.bin
+*.pkg.tar.gz
+*.zip
+*.tar.*
+
+# editors / OS
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
+__pycache__/

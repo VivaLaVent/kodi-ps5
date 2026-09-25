@@ -1,0 +1,11 @@
+# Force LF everywhere: this repo is often checked out on Windows (/mnt/c) but
+# the scripts run in bash, which breaks on CRLF.
+* text=auto eol=lf
+*.sh    text eol=lf
+*.cmake text eol=lf
+*.txt   text eol=lf
+*.md    text eol=lf
+*.h     text eol=lf
+*.cpp   text eol=lf
+*.png   binary
+*.zip   binary

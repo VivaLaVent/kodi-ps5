@@ -1,0 +1,73 @@
+/*
+ *  Copyright (C) 2026 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
+ *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
+ */
+
+#pragma once
+
+#include "WinSystemPS5.h"
+#include "rendering/gl/RenderSystemGL.h"
+#include "utils/EGLUtils.h"
+#include "windowing/linux/WinSystemEGL.h"
+
+#include <memory>
+#include <string>
+
+namespace KODI::WINDOWING::PS5
+{
+
+/*!
+ * \brief OpenGL window system backed by the ps5-opengl SDK.
+ *
+ * The SDK exposes a Mesa/Gallium OpenGL 4.6 Core implementation behind a
+ * plain EGL 1.4-style interface: eglGetDisplay(EGL_DEFAULT_DISPLAY) and a
+ * window surface created with a null native window select the console's
+ * fullscreen output. Its size is fixed by the SDK build profile, so we query
+ * the surface for the real geometry instead of trusting Kodi's settings.
+ */
+/*
+ * CWinSystemEGL (windowing/linux) is a small mixin that owns the
+ * CEGLContextUtils and exposes the EGL handles; RetroPlayer's EGL hardware
+ * rendering context casts the window system to it.
+ */
+class CWinSystemPS5GLContext : public CWinSystemPS5,
+                               public CRenderSystemGL,
+                               public LINUX::CWinSystemEGL
+{
+public:
+  CWinSystemPS5GLContext();
+  ~CWinSystemPS5GLContext() override = default;
+
+  static void Register();
+  static std::unique_ptr<CWinSystemBase> CreateWinSystem();
+
+  // CWinSystemBase
+  CRenderSystemBase* GetRenderSystem() override { return this; }
+  bool InitWindowSystem() override;
+  bool DestroyWindowSystem() override;
+  bool CreateNewWindow(const std::string& name, bool fullScreen, RESOLUTION_INFO& res) override;
+  bool DestroyWindow() override;
+  bool SetFullScreen(bool fullScreen, RESOLUTION_INFO& res, bool blankOtherDisplays) override;
+  void SetDirtyRegions(const CDirtyRegionList& dirtyRegions) override
+  {
+    m_eglContext.SetDamagedRegions(dirtyRegions);
+  }
+  int GetBufferAge() override { return m_eglContext.GetBufferAge(); }
+
+  // CRenderSystemGL
+  void PresentRender(bool rendered, bool videoLayer) override;
+
+protected:
+  void SetVSyncImpl(bool enable) override;
+  void PresentRenderImpl(bool rendered) override {}
+
+private:
+  bool CreateContext();
+  void QueryOutputGeometry();
+
+};
+
+} // namespace KODI::WINDOWING::PS5
