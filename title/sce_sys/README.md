@@ -40,4 +40,6 @@ And one that stays in place:
 - `kodi-swdecode` - use software (FFmpeg) video decoding only, e.g. to
   compare with the hardware decoder.
 - `kodi-pbo` - upload video frames through pixel buffer objects (Kodi's
-  default elsewhere; slow with the PS5 GL driver), for comparison.
+  default elsewhere), for comparison.
+- `kodi-tex2d` - video frames in 2D textures instead of rectangle textures
+  (the PS5 GL driver tiles 2D ones pixel by pixel: slow), for comparison.

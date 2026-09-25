@@ -110,7 +110,8 @@ processes, so FTP cannot delete Kodi's data — these let Kodi do it:
 | `kodi-uninstall` | wipe Kodi's data and quit; the title folder can then be deleted over FTP |
 | `kodi-debug` | debug-level logging (slower; remove when done) |
 | `kodi-swdecode` | software (FFmpeg) video decoding only, no hardware decoder |
-| `kodi-pbo` | video frame uploads through pixel buffer objects (slow with this GL driver; for comparison) |
+| `kodi-pbo` | video frame uploads through pixel buffer objects (for comparison) |
+| `kodi-tex2d` | video frames in 2D instead of rectangle textures (slow with this GL driver; for comparison) |
 
 ### Adding network sources
 
