@@ -39,3 +39,5 @@ And one that stays in place:
   remove it again when done.
 - `kodi-swdecode` - use software (FFmpeg) video decoding only, e.g. to
   compare with the hardware decoder.
+- `kodi-pbo` - upload video frames through pixel buffer objects (Kodi's
+  default elsewhere; slow with the PS5 GL driver), for comparison.
