@@ -75,6 +75,7 @@ bash scripts/12-build-libuuid-shim.sh    # small libuuid (crossguid) + libprocst
 bash scripts/13-build-brotli.sh          # brotli for Kodi's internal exiv2
 bash scripts/14-sysroot-pc-files.sh      # .pc files pacbrew does not install (sqlite3)
 bash scripts/16-build-ffmpeg.sh          # FFmpeg 7.1 (Kodi needs >= 7.1)
+bash scripts/17-build-sce-stubs.sh       # link stub for libSceVideodec2 (also run by 20 if missing)
 
 # 3. Configure (applies overlay + patches), build, package
 bash scripts/20-configure-kodi.sh        # BUILD_TYPE=Debug for a debug build
@@ -153,7 +154,7 @@ shims/native-app/               C library gaps, compiled into the title
 shims/libuuid/ shims/libprocstat/   minimal libraries for crossguid and exiv2
 shims/sce_stubs/                link stub for libSceVideodec2 (the SDK has none)
 pacbrew/ffmpeg/                 PKGBUILD for FFmpeg 7.1 (scripts/16)
-scripts/                        00 setup · 01 pacbrew resume · 10–16 dependencies · 20 configure · 30 package
+scripts/                        00 setup · 01 pacbrew resume · 10–17 dependencies · 20 configure · 30 package
 title/sce_sys/                  Kodi's icon; see the README there for the switches
 ```
 

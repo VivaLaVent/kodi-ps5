@@ -71,6 +71,8 @@ endif()
 # libSceAudioOut / libScePad / libSceUserService back the sink and pad input.
 # -lprocstat: stub from shims/libprocstat (scripts/12); exiv2 references
 # libprocstat on any __FreeBSD__ target for its library-info dump.
-set(SYSTEM_LDFLAGS -lSceAudioOut -lScePad -lSceUserService -lSceNetCtl -lprocstat -lsmb2)
+# libSceVideodec2: stub from scripts/17-build-sce-stubs.sh
+set(SYSTEM_LDFLAGS -lSceAudioOut -lScePad -lSceUserService -lSceNetCtl -lSceSysmodule
+                   -lSceVideodec2 -lprocstat -lsmb2)
 
 list(APPEND AUDIO_BACKENDS_LIST "ps5")
