@@ -9,8 +9,10 @@ export PS5_PAYLOAD_SDK="${PS5_PAYLOAD_SDK:-/opt/ps5-payload-sdk}"
 DEST="$PS5_PAYLOAD_SDK/target/lib"
 CC="$PS5_PAYLOAD_SDK/bin/prospero-clang"
 LLD=""
-for candidate in "$PS5_PAYLOAD_SDK/bin/prospero-lld" "$PS5_PAYLOAD_SDK/bin/ld.lld" \
-                 "$(command -v ld.lld || true)" "$(command -v ld.lld-18 || true)"; do
+# plain ld.lld first: the SDK's prospero-lld wrapper always adds -pie, which
+# cannot be combined with -shared
+for candidate in "$(command -v ld.lld || true)" "$(command -v ld.lld-18 || true)" \
+                 "$PS5_PAYLOAD_SDK/bin/ld.lld"; do
   [ -n "$candidate" ] && [ -x "$candidate" ] && { LLD="$candidate"; break; }
 done
 [ -x "$CC" ] || { echo "!! $CC not found"; exit 1; }
