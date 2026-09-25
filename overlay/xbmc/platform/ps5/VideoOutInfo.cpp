@@ -40,28 +40,22 @@ int sceVideoOutGetResolutionStatus(int32_t handle, ResolutionStatus* status);
 int sceVideoOutGetOutputStatus(int32_t handle, OutputStatus* status);
 int sceVideoOutIsOutputSupported(int32_t handle, uint32_t mode, const void*, const void*,
                                  const void*);
+int ps5_opengl_video_out_handle(void);
 }
 
-void KODI::PLATFORM::PS5::LogVideoOutInfo()
+bool KODI::PLATFORM::PS5::LogVideoOutInfo()
 {
-  // The GL driver owns the video output handle and does not export it.
-  // Handles are small integers: find ours with a read-only status query.
-  int32_t handle = -1;
-  ResolutionStatus resolution{};
-  for (int32_t candidate = 0; candidate < 32; ++candidate)
-  {
-    ResolutionStatus probe{};
-    if (sceVideoOutGetResolutionStatus(candidate, &probe) == 0 && probe.fullWidth > 0)
-    {
-      handle = candidate;
-      resolution = probe;
-      break;
-    }
-  }
+  // Exported by our addition to the GL driver (patches/ps5-opengl).
+  const int32_t handle = ps5_opengl_video_out_handle();
   if (handle < 0)
+    return false;
+  ResolutionStatus resolution{};
+  const int resRc = sceVideoOutGetResolutionStatus(handle, &resolution);
+  if (resRc != 0)
   {
-    CLog::Log(LOGWARNING, "PS5 video out: no readable video output handle found");
-    return;
+    CLog::Log(LOGWARNING, "PS5 video out: handle {} resolution status failed ({:#x})", handle,
+              static_cast<uint32_t>(resRc));
+    return true;
   }
 
   CLog::Log(LOGINFO,
@@ -95,4 +89,5 @@ void KODI::PLATFORM::PS5::LogVideoOutInfo()
   }
   CLog::Log(LOGINFO, "PS5 video out: supported output modes: {}",
             supported.empty() ? "none reported" : supported);
+  return true;
 }

@@ -12,5 +12,7 @@ namespace KODI::PLATFORM::PS5
 {
 // Read-only report of the system's video output (resolution, refresh rate)
 // and of the output modes it accepts for this title, written to the log.
-void LogVideoOutInfo();
+// Needs the GL driver's video out handle, which exists once the first frame
+// has been presented; returns false (nothing logged) before that.
+bool LogVideoOutInfo();
 } // namespace KODI::PLATFORM::PS5

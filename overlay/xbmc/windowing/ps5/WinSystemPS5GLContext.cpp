@@ -144,7 +144,6 @@ bool CWinSystemPS5GLContext::CreateNewWindow(const std::string& name,
   }
 
   QueryOutputGeometry();
-  KODI::PLATFORM::PS5::LogVideoOutInfo();
 
   m_nWidth = m_outputWidth;
   m_nHeight = m_outputHeight;
@@ -211,6 +210,9 @@ void CWinSystemPS5GLContext::PresentRender(bool rendered, bool videoLayer)
       throw std::runtime_error("eglSwapBuffers failed");
     }
     AccountSwap(before, std::chrono::steady_clock::now());
+    // The driver opens the video output with the first presented frame.
+    if (!m_videoOutLogged)
+      m_videoOutLogged = KODI::PLATFORM::PS5::LogVideoOutInfo();
   }
   else
   {

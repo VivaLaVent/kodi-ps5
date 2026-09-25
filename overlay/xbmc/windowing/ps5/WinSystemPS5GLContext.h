@@ -75,6 +75,7 @@ private:
   double m_swapTotalMs = 0;
   double m_swapMaxMs = 0;
   double m_swapGapMaxMs = 0;
+  bool m_videoOutLogged = false;
 
   bool CreateContext();
   void QueryOutputGeometry();
