@@ -53,11 +53,11 @@ public:
   bool CreateNewWindow(const std::string& name, bool fullScreen, RESOLUTION_INFO& res) override;
   bool DestroyWindow() override;
   bool SetFullScreen(bool fullScreen, RESOLUTION_INFO& res, bool blankOtherDisplays) override;
-  void SetDirtyRegions(const CDirtyRegionList& dirtyRegions) override
-  {
-    m_eglContext.SetDamagedRegions(dirtyRegions);
-  }
-  int GetBufferAge() override { return m_eglContext.GetBufferAge(); }
+  // The PS5 GL driver reports buffer ages that do not match its swap chain
+  // (stale GUI content showed through). Age 0 makes Kodi redraw the whole
+  // screen every frame, which is cheap on this GPU.
+  void SetDirtyRegions(const CDirtyRegionList& dirtyRegions) override {}
+  int GetBufferAge() override { return 0; }
 
   // CRenderSystemGL
   void PresentRender(bool rendered, bool videoLayer) override;
