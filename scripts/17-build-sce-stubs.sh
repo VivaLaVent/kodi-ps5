@@ -7,14 +7,23 @@ set -euo pipefail
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 export PS5_PAYLOAD_SDK="${PS5_PAYLOAD_SDK:-/opt/ps5-payload-sdk}"
 DEST="$PS5_PAYLOAD_SDK/target/lib"
+CC="$PS5_PAYLOAD_SDK/bin/prospero-clang"
+LLD=""
+for candidate in "$PS5_PAYLOAD_SDK/bin/prospero-lld" "$PS5_PAYLOAD_SDK/bin/ld.lld" \
+                 "$(command -v ld.lld || true)" "$(command -v ld.lld-18 || true)"; do
+  [ -n "$candidate" ] && [ -x "$candidate" ] && { LLD="$candidate"; break; }
+done
+[ -x "$CC" ] || { echo "!! $CC not found"; exit 1; }
+[ -n "$LLD" ] || { echo "!! no ld.lld found (install: sudo apt install lld)"; exit 1; }
+echo "using $CC and $LLD"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
 for stub in "$HERE"/shims/sce_stubs/*.c; do
   name="$(basename "$stub" .c)"
-  "$PS5_PAYLOAD_SDK/bin/prospero-clang" -ffreestanding -fno-builtin -nostdlib -fPIC \
+  "$CC" -ffreestanding -fno-builtin -nostdlib -fPIC \
     -c -o "$WORK/$name.o" "$stub"
-  "$PS5_PAYLOAD_SDK/bin/prospero-lld" -m elf_x86_64 -shared -soname "$name.sprx" \
+  "$LLD" -m elf_x86_64 -shared -soname "$name.sprx" \
     -o "$WORK/$name.so" "$WORK/$name.o"
   sudo install -m644 "$WORK/$name.so" "$DEST/"
   echo "installed $name stub into $DEST"

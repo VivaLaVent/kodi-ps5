@@ -22,7 +22,8 @@ export PS5_PAYLOAD_SDK="${PS5_PAYLOAD_SDK:-/opt/ps5-payload-sdk}"
 # our Sony link stubs (the SDK has none for these) must be in the sysroot
 for stub in "$HERE"/shims/sce_stubs/*.c; do
   [ -f "$PS5_PAYLOAD_SDK/target/lib/$(basename "$stub" .c).so" ] || {
-    bash "$HERE/scripts/17-build-sce-stubs.sh"; break; }
+    bash "$HERE/scripts/17-build-sce-stubs.sh" || { echo "!! stub build failed"; exit 1; }
+    break; }
 done
 export PS5_OPENGL_PREFIX="${PS5_OPENGL_PREFIX:-/opt/ps5-opengl-gl46}"
 
