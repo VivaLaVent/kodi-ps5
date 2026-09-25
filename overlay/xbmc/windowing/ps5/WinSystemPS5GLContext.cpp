@@ -14,6 +14,7 @@
 #include "utils/log.h"
 #include "windowing/WindowSystemFactory.h"
 
+#include <algorithm>
 #include <chrono>
 #include <stdexcept>
 #include <thread>
@@ -200,15 +201,46 @@ void CWinSystemPS5GLContext::PresentRender(bool rendered, bool videoLayer)
   if (rendered || videoLayer)
   {
     // eglSwapBuffers is our only vertical-sync source.
+    const auto before = std::chrono::steady_clock::now();
     if (!m_eglContext.TrySwapBuffers())
     {
       CEGLUtils::Log(LOGERROR, "eglSwapBuffers failed");
       throw std::runtime_error("eglSwapBuffers failed");
     }
+    AccountSwap(before, std::chrono::steady_clock::now());
   }
   else
   {
     // Nothing changed this frame: yield instead of spinning a core.
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
   }
+}
+
+// Frame pacing diagnostics: how often frames really reach the display and
+// how long a swap blocks (it should wait for vertical sync). Logged every
+// 5 seconds while frames are being presented.
+void CWinSystemPS5GLContext::AccountSwap(std::chrono::steady_clock::time_point before,
+                                         std::chrono::steady_clock::time_point after)
+{
+  using namespace std::chrono;
+  const double swapMs = duration<double, std::milli>(after - before).count();
+  if (m_swapCount == 0)
+    m_swapWindowStart = before;
+  else
+    m_swapGapMaxMs = std::max(m_swapGapMaxMs, duration<double, std::milli>(before - m_lastSwapEnd).count());
+  m_lastSwapEnd = after;
+  ++m_swapCount;
+  m_swapTotalMs += swapMs;
+  m_swapMaxMs = std::max(m_swapMaxMs, swapMs);
+
+  const double windowS = duration<double>(after - m_swapWindowStart).count();
+  if (windowS < 5.0)
+    return;
+  CLog::Log(LOGINFO,
+            "PS5 present: {:.1f} frames/s over {:.1f} s, swap blocks avg {:.2f} ms / max {:.2f} ms, "
+            "longest gap between swaps {:.1f} ms",
+            m_swapCount / windowS, windowS, m_swapTotalMs / m_swapCount, m_swapMaxMs,
+            m_swapGapMaxMs);
+  m_swapCount = 0;
+  m_swapTotalMs = m_swapMaxMs = m_swapGapMaxMs = 0;
 }

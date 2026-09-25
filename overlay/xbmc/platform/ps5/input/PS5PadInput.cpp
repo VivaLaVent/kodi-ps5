@@ -81,7 +81,7 @@ uint16_t ButtonToKeysym(uint32_t bit)
     case PAD_BUTTON_R2:
       return XBMCK_f;
     case PAD_BUTTON_L3:
-      return XBMCK_TAB;
+      return XBMCK_o; // sent with Ctrl+Shift: player debug overlay (see EmitKey)
     case PAD_BUTTON_R3:
       return XBMCK_m;
     case PAD_BUTTON_TOUCH_PAD:
@@ -255,17 +255,21 @@ void CPadInput::PollPad(Pad& pad)
 void CPadInput::EmitKey(uint32_t buttonBit, bool down)
 {
   const uint16_t sym = ButtonToKeysym(buttonBit);
-  if (sym)
-    EmitKeysym(sym, down);
+  if (!sym)
+    return;
+  // L3 = Ctrl+Shift+O: Kodi's player debug overlay (dropped frames, A/V sync)
+  const uint16_t mod =
+      buttonBit == PAD_BUTTON_L3 ? static_cast<uint16_t>(XBMCKMOD_LCTRL | XBMCKMOD_LSHIFT) : 0;
+  EmitKeysym(sym, down, mod);
 }
 
-void CPadInput::EmitKeysym(uint16_t sym, bool down)
+void CPadInput::EmitKeysym(uint16_t sym, bool down, uint16_t mod)
 {
   XBMC_Event event = {};
   event.type = down ? XBMC_KEYDOWN : XBMC_KEYUP;
   event.key.keysym.scancode = sym;
   event.key.keysym.sym = static_cast<XBMCKey>(sym);
-  event.key.keysym.mod = XBMCKMOD_NONE;
+  event.key.keysym.mod = static_cast<XBMCMod>(mod);
   event.key.keysym.unicode = 0;
 
   std::shared_ptr<CAppInboundProtocol> appPort = CServiceBroker::GetAppPort();

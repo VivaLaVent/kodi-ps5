@@ -8,6 +8,8 @@
 
 #pragma once
 
+#include <chrono>
+
 #include "WinSystemPS5.h"
 #include "rendering/gl/RenderSystemGL.h"
 #include "utils/EGLUtils.h"
@@ -65,6 +67,15 @@ protected:
   void PresentRenderImpl(bool rendered) override {}
 
 private:
+  void AccountSwap(std::chrono::steady_clock::time_point before,
+                   std::chrono::steady_clock::time_point after);
+  std::chrono::steady_clock::time_point m_swapWindowStart;
+  std::chrono::steady_clock::time_point m_lastSwapEnd;
+  unsigned m_swapCount = 0;
+  double m_swapTotalMs = 0;
+  double m_swapMaxMs = 0;
+  double m_swapGapMaxMs = 0;
+
   bool CreateContext();
   void QueryOutputGeometry();
 

@@ -82,6 +82,16 @@ private:
   bool m_fullRange = false;
   std::string m_stereoMode;
 
+  // timing diagnostics, logged every 5 seconds
+  void AccountTiming();
+  double m_statsWindowStart = 0;
+  unsigned m_statsDecodes = 0;
+  unsigned m_statsPictures = 0;
+  double m_statsDecodeMs = 0;
+  double m_statsDecodeMaxMs = 0;
+  double m_statsCopyMs = 0;
+  double m_statsCopyMaxMs = 0;
+
   int m_codecControlFlags = 0;
   unsigned m_errorsInRow = 0;
   bool m_fatal = false;

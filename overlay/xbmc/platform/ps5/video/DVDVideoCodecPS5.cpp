@@ -19,6 +19,7 @@
 #include "utils/log.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstring>
 
@@ -215,12 +216,48 @@ bool CDVDVideoCodecPS5::AddData(const DemuxPacket& packet)
   return !m_fatal;
 }
 
+namespace
+{
+double NowMs()
+{
+  return std::chrono::duration<double, std::milli>(
+             std::chrono::steady_clock::now().time_since_epoch())
+      .count();
+}
+} // namespace
+
+void CDVDVideoCodecPS5::AccountTiming()
+{
+  const double now = NowMs();
+  if (m_statsWindowStart == 0)
+    m_statsWindowStart = now;
+  const double window = now - m_statsWindowStart;
+  if (window < 5000.0)
+    return;
+  CLog::Log(LOGINFO,
+            "CDVDVideoCodecPS5: {:.1f} decodes/s, {:.1f} pictures/s; decode avg {:.2f} ms / max "
+            "{:.2f} ms, copy-out avg {:.2f} ms / max {:.2f} ms",
+            m_statsDecodes * 1000.0 / window, m_statsPictures * 1000.0 / window,
+            m_statsDecodes ? m_statsDecodeMs / m_statsDecodes : 0.0, m_statsDecodeMaxMs,
+            m_statsPictures ? m_statsCopyMs / m_statsPictures : 0.0, m_statsCopyMaxMs);
+  m_statsWindowStart = now;
+  m_statsDecodes = m_statsPictures = 0;
+  m_statsDecodeMs = m_statsDecodeMaxMs = m_statsCopyMs = m_statsCopyMaxMs = 0;
+}
+
 bool CDVDVideoCodecPS5::DecodeOne(const uint8_t* data, size_t size)
 {
   bool gotPicture = false;
   VideoDec2Picture picture;
   std::string error;
-  if (!m_decoder.Decode(data, size, gotPicture, &picture, error))
+  const double start = NowMs();
+  const bool ok = m_decoder.Decode(data, size, gotPicture, &picture, error);
+  const double took = NowMs() - start;
+  ++m_statsDecodes;
+  m_statsDecodeMs += took;
+  m_statsDecodeMaxMs = std::max(m_statsDecodeMaxMs, took);
+  AccountTiming();
+  if (!ok)
   {
     if (m_errorsInRow++ < 5)
       CLog::Log(LOGWARNING, "CDVDVideoCodecPS5: {}", error);
@@ -271,8 +308,13 @@ bool CDVDVideoCodecPS5::Keep(const VideoDec2Picture& picture)
   uint8_t* planes[YuvImage::MAX_PLANES];
   buffer->GetPlanes(planes);
   // luma: `height` visible rows; chroma starts after the full coded height
+  const double start = NowMs();
   std::memcpy(planes[0], picture.data, pitch * height);
   std::memcpy(planes[1], picture.data + pitch * picture.height, pitch * height / 2);
+  const double took = NowMs() - start;
+  ++m_statsPictures;
+  m_statsCopyMs += took;
+  m_statsCopyMaxMs = std::max(m_statsCopyMaxMs, took);
 
   m_decoded.push_back(Decoded{buffer, NextPts()});
   return true;

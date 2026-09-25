@@ -63,7 +63,7 @@ private:
   void ClosePad(Pad& pad);
   void PollPad(Pad& pad);
   void EmitKey(uint32_t buttonBit, bool down);
-  void EmitKeysym(uint16_t sym, bool down);
+  void EmitKeysym(uint16_t sym, bool down, uint16_t mod = 0);
 
   std::array<Pad, MAX_USERS> m_pads{};
   bool m_librariesReady{false};
