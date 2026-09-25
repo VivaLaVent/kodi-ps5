@@ -210,9 +210,14 @@ void CWinSystemPS5GLContext::PresentRender(bool rendered, bool videoLayer)
       throw std::runtime_error("eglSwapBuffers failed");
     }
     AccountSwap(before, std::chrono::steady_clock::now());
-    // The driver opens the video output with the first presented frame.
+    // The driver opens the video output with the first presented frame:
+    // then report it and adopt the system's real refresh rate (e.g. 59.94).
     if (!m_videoOutLogged)
+    {
       m_videoOutLogged = KODI::PLATFORM::PS5::LogVideoOutInfo();
+      if (m_videoOutLogged)
+        ApplySystemRefreshRate(KODI::PLATFORM::PS5::QueryRefreshRate());
+    }
   }
   else
   {

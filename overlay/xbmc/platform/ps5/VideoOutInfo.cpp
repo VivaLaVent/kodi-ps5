@@ -41,6 +41,7 @@ int sceVideoOutGetOutputStatus(int32_t handle, OutputStatus* status);
 int sceVideoOutIsOutputSupported(int32_t handle, uint32_t mode, const void*, const void*,
                                  const void*);
 int ps5_opengl_video_out_handle(void);
+int sceVideoOutGetVblankStatus(int32_t handle, void* status);
 }
 
 bool KODI::PLATFORM::PS5::LogVideoOutInfo()
@@ -89,5 +90,61 @@ bool KODI::PLATFORM::PS5::LogVideoOutInfo()
   }
   CLog::Log(LOGINFO, "PS5 video out: supported output modes: {}",
             supported.empty() ? "none reported" : supported);
+  return true;
+}
+
+int KODI::PLATFORM::PS5::VideoOutHandle()
+{
+  return ps5_opengl_video_out_handle();
+}
+
+namespace
+{
+// libSceVideoOut refresh-rate codes (0x3 observed for a 59.94 Hz output)
+float RefreshFromId(uint64_t id)
+{
+  switch (id)
+  {
+    case 0x1:
+      return 23.976f;
+    case 0x2:
+      return 50.0f;
+    case 0x3:
+      return 59.94f;
+    case 0x4:
+      return 29.97f;
+    case 0xd:
+      return 119.88f;
+    case 0x23:
+      return 89.91f;
+    default:
+      return 0.0f;
+  }
+}
+} // namespace
+
+float KODI::PLATFORM::PS5::QueryRefreshRate()
+{
+  const int32_t handle = ps5_opengl_video_out_handle();
+  if (handle < 0)
+    return 0.0f;
+  ResolutionStatus resolution{};
+  if (sceVideoOutGetResolutionStatus(handle, &resolution) != 0)
+    return 0.0f;
+  return RefreshFromId(resolution.refreshRate);
+}
+
+bool KODI::PLATFORM::PS5::QueryVblank(uint64_t& count, uint64_t& processTimeUs)
+{
+  const int32_t handle = ps5_opengl_video_out_handle();
+  if (handle < 0)
+    return false;
+  // SceVideoOutVblankStatus: count, processTime, tsc, reserved, flags (40
+  // bytes); a larger zeroed buffer keeps us safe if the layout grew.
+  uint64_t status[8] = {};
+  if (sceVideoOutGetVblankStatus(handle, status) != 0)
+    return false;
+  count = status[0];
+  processTimeUs = status[1];
   return true;
 }

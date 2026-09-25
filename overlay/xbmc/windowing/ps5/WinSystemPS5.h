@@ -47,6 +47,13 @@ public:
   bool ResizeWindow(int newWidth, int newHeight, int newLeft, int newTop) override;
   void UpdateResolutions() override;
 
+  // Vertical sync for Kodi's reference clock (VideoSyncPS5).
+  std::unique_ptr<CVideoSync> GetVideoSync(CVideoReferenceClock* clock) override;
+
+  // The system reported the real output refresh rate (after the first
+  // presented frame): adopt it for the desktop resolution.
+  void ApplySystemRefreshRate(float hz);
+
   bool CanDoWindowed() override { return false; }
   bool SupportsScreenMove() override { return false; }
   bool HasCursor() override { return false; }

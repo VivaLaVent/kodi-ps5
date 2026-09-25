@@ -8,9 +8,12 @@
 
 #include "WinSystemPS5.h"
 
+#include "VideoSyncPS5.h"
+
 #include "ServiceBroker.h"
 #include "guilib/DispResource.h"
 #include "settings/DisplaySettings.h"
+#include "utils/StringUtils.h"
 #include "utils/log.h"
 #include "windowing/GraphicContext.h"
 
@@ -18,6 +21,7 @@
 #include "platform/ps5/video/VideoCodecRegistration.h"
 
 #include <algorithm>
+#include <cmath>
 #include <mutex>
 
 using namespace KODI::WINDOWING::PS5;
@@ -95,4 +99,23 @@ void CWinSystemPS5::OnResetDevice()
   std::unique_lock lock(m_resourceSection);
   for (IDispResource* resource : m_resources)
     resource->OnResetDisplay();
+}
+
+std::unique_ptr<CVideoSync> CWinSystemPS5::GetVideoSync(CVideoReferenceClock* clock)
+{
+  return std::make_unique<CVideoSyncPS5>(clock);
+}
+
+void CWinSystemPS5::ApplySystemRefreshRate(float hz)
+{
+  if (hz <= 0.0f || std::abs(hz - m_outputRefresh) < 0.005f)
+    return;
+  CLog::Log(LOGINFO, "CWinSystemPS5: system output runs at {:.3f} Hz (was assuming {:.3f})", hz,
+            m_outputRefresh);
+  m_outputRefresh = hz;
+  m_fRefreshRate = hz;
+  RESOLUTION_INFO& desktop = CDisplaySettings::GetInstance().GetResolutionInfo(RES_DESKTOP);
+  desktop.fRefreshRate = hz;
+  desktop.strMode = StringUtils::Format("{}x{} @ {:.2f}Hz (PS5)", desktop.iScreenWidth,
+                                        desktop.iScreenHeight, hz);
 }

@@ -32,7 +32,9 @@ sudo cp -a "$SRC/build/sdk/ps5-opengl-gl46/." "$PS5_OPENGL_PREFIX/"
 # runtime, and so our additions, live in lib/libps5_opengl_core33.a.
 found=""
 for lib in "$PS5_OPENGL_PREFIX"/lib/*.a; do
-  if "$PS5_PAYLOAD_SDK/bin/llvm-nm" "$lib" 2>/dev/null | grep -q " T ps5_opengl_video_out_handle"; then
+  # no "grep -q": it stops reading early, llvm-nm then dies of SIGPIPE and
+  # pipefail reports the match as a failure
+  if [ "$("$PS5_PAYLOAD_SDK/bin/llvm-nm" "$lib" 2>/dev/null | grep -c " T ps5_opengl_video_out_handle")" -gt 0 ]; then
     found="$lib"; break
   fi
 done
