@@ -9,6 +9,7 @@
 #include "WinSystemPS5GLContext.h"
 
 #include "platform/ps5/VideoOutInfo.h"
+#include "settings/DisplaySettings.h"
 
 #include "cores/VideoPlayer/DVDCodecs/DVDFactoryCodec.h"
 #include "cores/VideoPlayer/VideoRenderers/LinuxRendererGL.h"
@@ -150,7 +151,17 @@ bool CWinSystemPS5GLContext::CreateNewWindow(const std::string& name,
     return false;
   }
 
+  const int registeredWidth = CDisplaySettings::GetInstance().GetResolutionInfo(RES_DESKTOP).iWidth;
+  const int registeredHeight = CDisplaySettings::GetInstance().GetResolutionInfo(RES_DESKTOP).iHeight;
   QueryOutputGeometry();
+  if (m_outputWidth != registeredWidth || m_outputHeight != registeredHeight)
+  {
+    // Kodi registered another size than the surface has: correct the
+    // desktop mode, otherwise the GUI covers only part of the screen.
+    CLog::Log(LOGWARNING, "CWinSystemPS5: surface is {}x{}, Kodi had registered {}x{}; correcting",
+              m_outputWidth, m_outputHeight, registeredWidth, registeredHeight);
+    UpdateResolutions();
+  }
 
   m_nWidth = m_outputWidth;
   m_nHeight = m_outputHeight;

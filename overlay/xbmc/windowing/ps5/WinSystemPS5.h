@@ -15,6 +15,10 @@
 #include <string>
 #include <vector>
 
+#if __has_include(<ps5_opengl_display.h>)
+#include <ps5_opengl_display.h> // PS5_OPENGL_NATIVE_{WIDTH,HEIGHT,FPS}: GL SDK build profile
+#endif
+
 class IDispResource;
 
 namespace KODI::PLATFORM::PS5
@@ -66,10 +70,21 @@ protected:
   void OnLostDevice();
   void OnResetDevice();
 
-  // Output geometry; refined from the EGL surface once it exists.
+  // Output geometry. Kodi registers its resolutions before the window (and
+  // the EGL surface) exists, so start from the GL SDK's build profile - the
+  // size its surface will have - and refine from the surface afterwards.
+#if defined(PS5_OPENGL_NATIVE_WIDTH) && defined(PS5_OPENGL_NATIVE_HEIGHT)
+  int m_outputWidth{PS5_OPENGL_NATIVE_WIDTH};
+  int m_outputHeight{PS5_OPENGL_NATIVE_HEIGHT};
+#else
   int m_outputWidth{1920};
   int m_outputHeight{1080};
+#endif
+#if defined(PS5_OPENGL_NATIVE_FPS)
+  float m_outputRefresh{static_cast<float>(PS5_OPENGL_NATIVE_FPS)};
+#else
   float m_outputRefresh{60.0f};
+#endif
 
   CCriticalSection m_resourceSection;
   std::vector<IDispResource*> m_resources;
