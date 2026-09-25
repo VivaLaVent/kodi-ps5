@@ -8,6 +8,8 @@
 
 #include "WinSystemPS5GLContext.h"
 
+#include "platform/ps5/VideoOutInfo.h"
+
 #include "cores/VideoPlayer/DVDCodecs/DVDFactoryCodec.h"
 #include "cores/VideoPlayer/VideoRenderers/LinuxRendererGL.h"
 #include "cores/VideoPlayer/VideoRenderers/RenderFactory.h"
@@ -142,6 +144,7 @@ bool CWinSystemPS5GLContext::CreateNewWindow(const std::string& name,
   }
 
   QueryOutputGeometry();
+  KODI::PLATFORM::PS5::LogVideoOutInfo();
 
   m_nWidth = m_outputWidth;
   m_nHeight = m_outputHeight;
