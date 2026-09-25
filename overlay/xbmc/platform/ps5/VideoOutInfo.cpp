@@ -148,3 +148,16 @@ bool KODI::PLATFORM::PS5::QueryVblank(uint64_t& count, uint64_t& processTimeUs)
   processTimeUs = status[1];
   return true;
 }
+
+bool KODI::PLATFORM::PS5::QuerySystemResolution(unsigned& width, unsigned& height)
+{
+  const int32_t handle = ps5_opengl_video_out_handle();
+  if (handle < 0)
+    return false;
+  ResolutionStatus resolution{};
+  if (sceVideoOutGetResolutionStatus(handle, &resolution) != 0 || !resolution.fullWidth)
+    return false;
+  width = resolution.fullWidth;
+  height = resolution.fullHeight;
+  return true;
+}

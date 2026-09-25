@@ -21,6 +21,9 @@ bool LogVideoOutInfo();
 // The GL driver's video out handle (-1 before the first presented frame).
 int VideoOutHandle();
 
+// The system's output size (false if unknown).
+bool QuerySystemResolution(unsigned& width, unsigned& height);
+
 // Current output refresh rate in Hz from the system (0 if unknown).
 float QueryRefreshRate();
 

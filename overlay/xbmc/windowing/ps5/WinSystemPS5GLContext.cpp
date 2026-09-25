@@ -21,6 +21,9 @@
 #include <stdexcept>
 #include <thread>
 
+#if __has_include(<ps5_opengl_display.h>)
+#include <ps5_opengl_display.h> // PS5_OPENGL_NATIVE_{WIDTH,HEIGHT,FPS}: SDK build profile
+#endif
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
 
@@ -116,9 +119,13 @@ void CWinSystemPS5GLContext::QueryOutputGeometry()
     m_outputWidth = width;
     m_outputHeight = height;
   }
-  // The SDK profiles are 1080p60, 1440p120 and 4K120; EGL cannot tell us the
-  // refresh, so infer it from the height until the SDK exposes it.
-  m_outputRefresh = (m_outputHeight > 1080) ? 120.0f : 60.0f;
+  // Presentation rate of the GL SDK's build profile; the real output rate
+  // (e.g. 59.94 Hz) is read from the system after the first frame.
+#if defined(PS5_OPENGL_NATIVE_FPS)
+  m_outputRefresh = static_cast<float>(PS5_OPENGL_NATIVE_FPS);
+#else
+  m_outputRefresh = 60.0f;
+#endif
 }
 
 bool CWinSystemPS5GLContext::CreateNewWindow(const std::string& name,
@@ -216,7 +223,23 @@ void CWinSystemPS5GLContext::PresentRender(bool rendered, bool videoLayer)
     {
       m_videoOutLogged = KODI::PLATFORM::PS5::LogVideoOutInfo();
       if (m_videoOutLogged)
+      {
         ApplySystemRefreshRate(KODI::PLATFORM::PS5::QueryRefreshRate());
+        unsigned sysWidth = 0, sysHeight = 0;
+        if (KODI::PLATFORM::PS5::QuerySystemResolution(sysWidth, sysHeight))
+        {
+          if (sysWidth == static_cast<unsigned>(m_outputWidth) &&
+              sysHeight == static_cast<unsigned>(m_outputHeight))
+            CLog::Log(LOGINFO, "CWinSystemPS5: rendering at the system resolution {}x{}",
+                      sysWidth, sysHeight);
+          else
+            CLog::Log(LOGWARNING,
+                      "CWinSystemPS5: rendering {}x{}, but the system outputs {}x{} (the PS5 "
+                      "scales). Rebuild the GL SDK with PS5_SCANOUT_HEIGHT={} "
+                      "(scripts/18-build-ps5-opengl.sh) to render natively.",
+                      m_outputWidth, m_outputHeight, sysWidth, sysHeight, sysHeight);
+        }
+      }
     }
   }
   else
