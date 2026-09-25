@@ -28,9 +28,16 @@ echo "==> rebuilding the runtime and packaging the SDK"
 echo "==> installing into $PS5_OPENGL_PREFIX"
 sudo cp -a "$SRC/build/sdk/ps5-opengl-gl46/." "$PS5_OPENGL_PREFIX/"
 
-if "$PS5_PAYLOAD_SDK/bin/llvm-nm" "$PS5_OPENGL_PREFIX/lib/libPS5OpenGL.a" 2>/dev/null \
-     | grep -q " T ps5_opengl_video_out_handle"; then
-  echo "SDK ready: ps5_opengl_video_out_handle exported"
+# lib/libPS5OpenGL.a is a linker script (GROUP of the real archives); the
+# runtime, and so our additions, live in lib/libps5_opengl_core33.a.
+found=""
+for lib in "$PS5_OPENGL_PREFIX"/lib/*.a; do
+  if "$PS5_PAYLOAD_SDK/bin/llvm-nm" "$lib" 2>/dev/null | grep -q " T ps5_opengl_video_out_handle"; then
+    found="$lib"; break
+  fi
+done
+if [ -n "$found" ]; then
+  echo "SDK ready: ps5_opengl_video_out_handle exported (in $(basename "$found"))"
 else
-  echo "!! installed libPS5OpenGL.a lacks ps5_opengl_video_out_handle"; exit 1
+  echo "!! no installed archive in $PS5_OPENGL_PREFIX/lib exports ps5_opengl_video_out_handle"; exit 1
 fi
