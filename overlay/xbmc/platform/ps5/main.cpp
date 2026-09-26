@@ -311,6 +311,19 @@ bool ProbeHome(const std::string& home)
 }
 } // namespace
 
+// Switch files in the title folder. access() is refused inside the title
+// sandbox (the switches were never seen with it), while stat() works on the
+// same paths, so presence is tested with stat().
+static bool SwitchPresent(const char* path)
+{
+  struct stat st;
+  if (stat(path, &st) == 0)
+    return true;
+  if (errno != ENOENT)
+    Klogf("[kodi-ps5] switch check %s: errno %d (%s)\n", path, errno, strerror(errno));
+  return false;
+}
+
 int main(int argc, char* argv[])
 {
   // Written straight to klog: visible even if everything after this fails.
@@ -343,7 +356,7 @@ int main(int argc, char* argv[])
   //   kodi-reset      wipe Kodi's data, then start Kodi fresh
   //   kodi-uninstall  wipe Kodi's data and quit; afterwards the whole title
   //                   folder can be deleted over FTP
-  if (access("/app0/kodi-uninstall", F_OK) == 0)
+  if (SwitchPresent("/app0/kodi-uninstall"))
   {
     const int n = RemoveTree("/app0/kodi");
     unlink("/app0/kodi-uninstall");
@@ -351,7 +364,7 @@ int main(int argc, char* argv[])
           "quitting\n", n);
     _exit(0);
   }
-  if (access("/app0/kodi-reset", F_OK) == 0)
+  if (SwitchPresent("/app0/kodi-reset"))
   {
     const int n = RemoveTree("/app0/kodi");
     unlink("/app0/kodi-reset");
@@ -448,10 +461,9 @@ int main(int argc, char* argv[])
   std::vector<char*> args(argv, argv + argc);
   static char debugFlag[] = "--debug";
 
-  // Switches that stay in place (unlike reset/uninstall) are read here, once:
-  // checks of /app0 made later in the running title do not see them. Each
-  // found switch sets an environment variable that the rest of the port
-  // (window system, decoder, renderer, GL profiler, GL driver) reads.
+  // Switches that stay in place (unlike reset/uninstall) are read here, once,
+  // and each found switch sets an environment variable that the rest of the
+  // port (window system, decoder, renderer, GL profiler, GL driver) reads.
   static const struct
   {
     const char* file;
@@ -465,7 +477,7 @@ int main(int argc, char* argv[])
   };
   for (const auto& sw : kSwitches)
   {
-    if (access(sw.file, F_OK) == 0)
+    if (SwitchPresent(sw.file))
     {
       setenv(sw.env, "1", 1);
       Klogf("[kodi-ps5] switch %s found (%s=1)\n", sw.file + 6, sw.env);
