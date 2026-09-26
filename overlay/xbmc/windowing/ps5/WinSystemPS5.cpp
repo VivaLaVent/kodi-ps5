@@ -12,8 +12,6 @@
 #include "platform/ps5/VideoOutInfo.h"
 
 #include "ServiceBroker.h"
-#include "application/ApplicationComponents.h"
-#include "application/ApplicationPlayer.h"
 #include "guilib/DispResource.h"
 #include "settings/DisplaySettings.h"
 #include "utils/StringUtils.h"
@@ -186,14 +184,13 @@ void CWinSystemPS5::DetectOutputModes()
 
 float CWinSystemPS5::SwitchOutputRate(const RESOLUTION_INFO& res)
 {
+  // Kodi requests a "(PS5 VRR)" mode only through "Adjust display refresh
+  // rate" (patch 0012: On start/stop, during playback) and the desktop mode
+  // otherwise, so the requested mode alone decides. "Sync playback to
+  // display" plays no part in it.
   using namespace KODI::PLATFORM::PS5;
   const bool vrrMode = res.strMode.find(kVrrModeTag) != std::string::npos;
-  const auto player = CServiceBroker::GetAppComponents().GetComponent<CApplicationPlayer>();
-  const bool playing = player && player->IsPlayingVideo();
-  const bool wantVrr = vrrMode && m_vrrAvailable && playing;
-  if (vrrMode && !wantVrr)
-    CLog::Log(LOGINFO, "CWinSystemPS5: {} requested without {}: staying at the system rate",
-              res.strMode, !m_vrrAvailable ? "VRR" : "a playing video");
+  const bool wantVrr = vrrMode && m_vrrAvailable && res.fRefreshRate > 0.0f;
 
   if (!wantVrr)
   {
@@ -205,21 +202,24 @@ float CWinSystemPS5::SwitchOutputRate(const RESOLUTION_INFO& res)
       m_vrrActive = false;
       m_vrrTargetHz = 0.0f;
       m_vblankClockUnreliable = false;
-      m_fRefreshRate = m_outputRefresh = m_systemRefresh > 0.0f ? m_systemRefresh : 60.0f;
-      CLog::Log(rc == 0 ? LOGINFO : LOGWARNING, "CWinSystemPS5: VRR off, system rate {:.3f} Hz ({:#x})",
-                m_fRefreshRate, static_cast<uint32_t>(rc));
+      RefreshLinkState();
+      m_fRefreshRate = m_outputRefresh = m_systemRefresh > 0.0f ? m_systemRefresh : 59.94f;
+      CLog::Log(LOGINFO, "CWinSystemPS5: display mode {}: VRR off ({:#x}); {}", res.strMode,
+                static_cast<uint32_t>(rc), PacingDescription());
       OnResetDevice();
     }
+    else if (vrrMode)
+      CLog::Log(LOGWARNING, "CWinSystemPS5: display mode {} requested, but VRR is not available: "
+                "system rate; {}", res.strMode, PacingDescription());
     return m_fRefreshRate;
   }
 
   if (!m_vrrActive)
   {
     // Engage VRR. On the system's VRR link the display already follows our
-    // presentation; the unpeg is still issued, as ProsperoLight does, but its
-    // result is only logged. Otherwise: the high-refresh preset (the system
-    // makes it VRR pegged at 120 Hz), then the unpeg; if either step fails,
-    // back to the system mode at once, so a fixed 120 Hz output is never kept.
+    // presentation; the unpeg is still issued, as ProsperoLight does, and only
+    // logged. Otherwise: the high-refresh preset (VRR pegged at 120 Hz), then
+    // the unpeg; if either fails, back to the system mode at once.
     OnLostDevice();
     int rc = 0;
     const char* step = "VRR unpeg";
@@ -241,11 +241,13 @@ float CWinSystemPS5::SwitchOutputRate(const RESOLUTION_INFO& res)
     if (rc != 0)
     {
       SetOutputMode(kOutputModeDefault);
-      m_vrrAvailable = false; // not offered again this session
-      CLog::Log(LOGWARNING, "CWinSystemPS5: VRR could not be engaged ({} {:#x}; is VRR on in the "
-                "PS5 settings?): system rate", step, static_cast<uint32_t>(rc));
+      RefreshLinkState();
+      m_vrrAvailable = m_linkIsVrr; // without a VRR link, not offered again this session
+      CLog::Log(LOGWARNING, "CWinSystemPS5: display mode {}: VRR not engaged ({} {:#x}); {}",
+                res.strMode, step, static_cast<uint32_t>(rc), PacingDescription());
       OnResetDevice();
-      return m_fRefreshRate;
+      if (!m_linkIsVrr)
+        return m_fRefreshRate;
     }
     m_vrrActive = true;
     m_vblankClockUnreliable = false;
@@ -253,8 +255,25 @@ float CWinSystemPS5::SwitchOutputRate(const RESOLUTION_INFO& res)
   }
   m_vrrTargetHz = res.fRefreshRate;
   m_fRefreshRate = m_outputRefresh = res.fRefreshRate;
-  CLog::Log(LOGINFO, "CWinSystemPS5: VRR active, presenting at {:.3f} Hz", m_vrrTargetHz);
+  CLog::Log(LOGINFO, "CWinSystemPS5: display mode {}: VRR on; {}", res.strMode,
+            PacingDescription());
   return m_fRefreshRate;
+}
+
+void CWinSystemPS5::RefreshLinkState()
+{
+  // A VRR link reports ~120 Hz; the display then follows our presentation,
+  // so presentation must always be paced on it (never unthrottled).
+  const float hz = KODI::PLATFORM::PS5::QueryRefreshRate();
+  if (hz > 0.0f)
+    m_linkIsVrr = hz > 100.0f;
+}
+
+std::string CWinSystemPS5::PacingDescription() const
+{
+  const float pace = VrrTargetRate();
+  return pace > 0.0f ? StringUtils::Format("presenting at {:.3f} Hz on the VRR link", pace)
+                     : StringUtils::Format("fixed-rate output at {:.3f} Hz", m_fRefreshRate);
 }
 
 void CWinSystemPS5::RestoreOutputMode()

@@ -68,13 +68,16 @@ public:
   void DetectOutputModes();
 
   // Kodi selected a display mode: the desktop mode (the system rate) or one of
-  // the "(PS5 VRR)" modes. VRR engages only for those, only while a video
-  // plays, and only with "Adjust display refresh rate: On start/stop".
-  // Returns the refresh rate in effect.
+  // the "(PS5 VRR)" modes, which Kodi requests only through "Adjust display
+  // refresh rate: On start/stop" during playback. Returns the rate in effect.
   float SwitchOutputRate(const RESOLUTION_INFO& res);
 
   // Back to the system's own mode (on exit).
   void RestoreOutputMode();
+
+  // Re-read whether the output is a VRR link (after any mode change).
+  void RefreshLinkState();
+  std::string PacingDescription() const;
 
   // The output's refresh rate as set up (the VRR target during VRR).
   float OutputRefreshRate() const { return m_fRefreshRate; }
