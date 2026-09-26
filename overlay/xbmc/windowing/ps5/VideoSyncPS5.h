@@ -8,6 +8,7 @@
 
 #pragma once
 
+#include "guilib/DispResource.h"
 #include "windowing/VideoSync.h"
 
 #include <cstdint>
@@ -19,7 +20,7 @@ class CWinSystemBase;
  * video output's vblank counter (read-only; presentation is untouched) and
  * reports each new vblank with its timestamp, like the GBM implementation.
  */
-class CVideoSyncPS5 : public CVideoSync
+class CVideoSyncPS5 : public CVideoSync, public IDispResource
 {
 public:
   explicit CVideoSyncPS5(CVideoReferenceClock* clock);
@@ -28,6 +29,10 @@ public:
   void Cleanup() override;
   float GetFps() override;
   void RefreshChanged() override;
+
+  // IDispResource: the window system resets the display after an output rate
+  // switch; stop, so the reference clock restarts us with the new rate.
+  void OnResetDisplay() override;
 
 private:
   CWinSystemBase* m_winSystem;

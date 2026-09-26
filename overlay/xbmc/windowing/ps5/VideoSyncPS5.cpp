@@ -18,6 +18,7 @@
 #include "windowing/WinSystem.h"
 
 #include <chrono>
+#include <cmath>
 #include <thread>
 
 extern "C" uint64_t sceKernelGetProcessTime(void);
@@ -39,14 +40,26 @@ bool CVideoSyncPS5::Setup()
     return false;
   }
   m_lastCount = count;
+  if (m_winSystem)
+    m_winSystem->Register(this);
   CLog::Log(LOGINFO, "CVideoSyncPS5: vblank counter at {}, display {:.3f} Hz", count, GetFps());
   return true;
 }
 
 void CVideoSyncPS5::Run(CEvent& stopEvent)
 {
+  unsigned polls = 0;
   while (!stopEvent.Signaled() && !m_abort)
   {
+    // safety net: a changed output rate ends this run, so the reference
+    // clock restarts with the new rate (Kodi reads it only at Setup)
+    if (++polls % 100 == 0 && m_winSystem &&
+        std::abs(m_winSystem->GetGfxContext().GetFPS() - m_fps) > 0.01f)
+    {
+      CLog::Log(LOGINFO, "CVideoSyncPS5: display rate changed ({:.3f} -> {:.3f} Hz), restarting",
+                m_fps, m_winSystem->GetGfxContext().GetFPS());
+      break;
+    }
     std::this_thread::sleep_for(std::chrono::milliseconds(1));
     uint64_t count = 0, when = 0;
     if (!QueryVblank(count, when))
@@ -72,6 +85,13 @@ void CVideoSyncPS5::Run(CEvent& stopEvent)
 
 void CVideoSyncPS5::Cleanup()
 {
+  if (m_winSystem)
+    m_winSystem->Unregister(this);
+}
+
+void CVideoSyncPS5::OnResetDisplay()
+{
+  m_abort = true;
 }
 
 float CVideoSyncPS5::GetFps()

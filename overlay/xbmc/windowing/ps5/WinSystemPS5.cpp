@@ -154,6 +154,9 @@ float CWinSystemPS5::SwitchOutputRate(float requestedHz)
   if (wantHigh == m_highRefreshActive)
     return m_fRefreshRate;
 
+  // Like a mode switch elsewhere: display resources (renderer, vsync clock)
+  // see a lost/reset display around it, so the clock restarts at the new rate.
+  OnLostDevice();
   const int rc = SetOutputMode(wantHigh ? kOutputModeHighRefresh : kOutputModeDefault);
   if (rc != 0)
   {
@@ -162,6 +165,7 @@ float CWinSystemPS5::SwitchOutputRate(float requestedHz)
               m_fRefreshRate);
     if (wantHigh)
       m_highRefreshAvailable = false; // do not offer it again this session
+    OnResetDevice();
     return m_fRefreshRate;
   }
   m_highRefreshActive = wantHigh;
@@ -171,6 +175,7 @@ float CWinSystemPS5::SwitchOutputRate(float requestedHz)
   m_fRefreshRate = hz;
   m_outputRefresh = hz;
   CLog::Log(LOGINFO, "CWinSystemPS5: output switched to {:.3f} Hz", hz);
+  OnResetDevice();
   return hz;
 }
 
