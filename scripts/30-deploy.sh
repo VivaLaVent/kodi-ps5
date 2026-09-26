@@ -97,6 +97,16 @@ for stub in "$HERE"/shims/sce_stubs/*.c; do
   [ -f "$so" ] || { echo "!! $so missing: run scripts/17-build-sce-stubs.sh"; exit 1; }
   cp "$so" "$STUBDIR/"
 done
+# libSceVideoOut: our extended stub (the SDK's plus the VRR unpeg function)
+# replaces the template's copy, provided it exports everything that one does.
+VO_EXT="$PS5_PAYLOAD_SDK/target/lib/libSceVideoOut.so"
+[ -f "$PS5_PAYLOAD_SDK/target/lib/libSceVideoOut.so.sdk" ] || {
+  echo "!! extended libSceVideoOut stub missing: run scripts/17-build-sce-stubs.sh"; exit 1; }
+VO_NM="$PS5_PAYLOAD_SDK/bin/llvm-nm"; [ -x "$VO_NM" ] || VO_NM="$(command -v llvm-nm-18 || command -v llvm-nm)"
+VO_MISSING="$(comm -23 <("$VO_NM" -D --defined-only "$STUBDIR/libSceVideoOut.so" | awk '{print $3}' | sort) \
+                       <("$VO_NM" -D --defined-only "$VO_EXT" | awk '{print $3}' | sort))"
+[ -z "$VO_MISSING" ] || { echo "!! extended libSceVideoOut stub lacks: $VO_MISSING"; exit 1; }
+cp "$VO_EXT" "$STUBDIR/libSceVideoOut.so"
 # app-owned malloc heap: the demo's 128 MiB is far too small for Kodi
 sed -i "s/#define PS5_OPENGL_HEAP_SIZE (128u \* 1024u \* 1024u)/#define PS5_OPENGL_HEAP_SIZE (${HEAP_MIB}ull * 1024ull * 1024ull)/" "$APP/src/app_heap.c"
 grep -q "PS5_OPENGL_HEAP_SIZE (${HEAP_MIB}ull" "$APP/src/app_heap.c" || { echo "!! could not raise the heap size in app_heap.c"; exit 1; }
