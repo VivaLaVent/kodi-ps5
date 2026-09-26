@@ -44,8 +44,20 @@ else
   CLEAN_BASE=0
 fi
 
+# Overlay files are copied only where their content differs, with a fresh
+# timestamp: "cp -a" kept the timestamps from the zip, which can be older than
+# the last build's objects, so ninja skipped changed files.
 echo "==> applying overlay to $KODI_SRC"
-cp -a "$HERE/overlay/." "$KODI_SRC/"
+OVERLAY_CHANGED=0
+while IFS= read -r -d '' f; do
+  dst="$KODI_SRC/${f#"$HERE"/overlay/}"
+  if ! cmp -s "$f" "$dst"; then
+    mkdir -p "$(dirname "$dst")"
+    cp "$f" "$dst"
+    OVERLAY_CHANGED=$((OVERLAY_CHANGED + 1))
+  fi
+done < <(find "$HERE/overlay" -type f -print0)
+echo "==> overlay: $OVERLAY_CHANGED files updated"
 
 # Small patches to Kodi's own files that the overlay cannot express, in order.
 for p in "$HERE"/patches/kodi/*.patch; do
