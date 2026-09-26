@@ -29,15 +29,35 @@ export PS5_OPENGL_PREFIX="${PS5_OPENGL_PREFIX:-/opt/ps5-opengl-gl46}"
 
 [ -f "$KODI_SRC/version.txt" ] || { echo "Kodi source not found at $KODI_SRC"; exit 1; }
 
+# Kodi patches always start from Kodi's own files: restore every file a patch
+# touches from git, so a patch that changed between rounds (or one applied
+# only partly before) cannot leave a mixed file behind.
+PATCHED_FILES=$(grep -h '^+++ b/' "$HERE"/patches/kodi/*.patch | sed 's|^+++ b/||; s|\t.*||' | sort -u)
+if git -C "$KODI_SRC" rev-parse --git-dir >/dev/null 2>&1; then
+  echo "==> restoring the $(echo "$PATCHED_FILES" | wc -l) Kodi files our patches change"
+  for f in $PATCHED_FILES; do
+    git -C "$KODI_SRC" checkout -- "$f" 2>/dev/null || echo "   note: $f is not tracked by git"
+  done
+  CLEAN_BASE=1
+else
+  echo "   note: $KODI_SRC is not a git checkout: patches go on top of the current files"
+  CLEAN_BASE=0
+fi
+
 echo "==> applying overlay to $KODI_SRC"
 cp -a "$HERE/overlay/." "$KODI_SRC/"
 
-# Small patches to Kodi's own build files that the overlay cannot express.
-# Each is applied once (patch -N refuses already-applied hunks).
+# Small patches to Kodi's own files that the overlay cannot express, in order.
 for p in "$HERE"/patches/kodi/*.patch; do
   [ -f "$p" ] || continue
-  ( cd "$KODI_SRC" && patch -p1 -N -r - --silent < "$p" ) || true
+  if [ "$CLEAN_BASE" = 1 ]; then
+    ( cd "$KODI_SRC" && patch -p1 --forward --no-backup-if-mismatch -r - --silent < "$p" ) || {
+      echo "!! Kodi patch $(basename "$p") does not apply to this Kodi revision"; exit 1; }
+  else
+    ( cd "$KODI_SRC" && patch -p1 -N --no-backup-if-mismatch -r - --silent < "$p" ) || true
+  fi
 done
+echo "==> $(ls "$HERE"/patches/kodi/*.patch | wc -l) Kodi patches applied"
 
 echo "==> configuring in $BUILD"
 mkdir -p "$BUILD"
