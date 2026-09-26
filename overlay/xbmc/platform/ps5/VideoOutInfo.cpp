@@ -142,22 +142,21 @@ int KODI::PLATFORM::PS5::SetOutputMode(uint32_t mode)
 
 extern "C"
 {
-// VRR: in our libSceVideoOut link stub (scripts/17), not in the SDK's. Weak,
-// so that - if the loader leaves a missing import empty - Kodi sees a null
-// pointer on firmware without the function instead of failing.
-int sceVideoOutVrrUnpegFromFixedRate(int32_t handle) __attribute__((weak));
+// VRR: in our libSceVideoOut link stub (scripts/17), not in the SDK's. A
+// normal import, as ProsperoLight links it: the PS5 loader left a weak import
+// of it empty, although the function exists (ProsperoLight's VRR works on
+// the same firmware).
+int sceVideoOutVrrUnpegFromFixedRate(int32_t handle);
 }
 
 bool KODI::PLATFORM::PS5::IsVrrUnpegAvailable()
 {
-  static const bool available = []
+  static const bool logged = []
   {
-    const bool present = &sceVideoOutVrrUnpegFromFixedRate != nullptr;
-    CLog::Log(present ? LOGINFO : LOGWARNING, "PS5 VRR: sceVideoOutVrrUnpegFromFixedRate {}",
-              present ? "linked" : "missing on this firmware: VRR unavailable");
-    return present;
+    CLog::Log(LOGINFO, "PS5 VRR: sceVideoOutVrrUnpegFromFixedRate linked");
+    return true;
   }();
-  return available;
+  return logged;
 }
 
 int KODI::PLATFORM::PS5::VrrUnpegFromFixedRate()
@@ -165,7 +164,5 @@ int KODI::PLATFORM::PS5::VrrUnpegFromFixedRate()
   const int32_t handle = ps5_opengl_video_out_handle();
   if (handle < 0)
     return -1;
-  if (!IsVrrUnpegAvailable())
-    return -2;
   return sceVideoOutVrrUnpegFromFixedRate(handle);
 }

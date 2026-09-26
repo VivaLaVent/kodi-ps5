@@ -42,8 +42,8 @@ bool IsHighRefreshSupported();
 // Switch the output preset; waits for the output to settle. 0 on success.
 int SetOutputMode(uint32_t mode);
 
-// Whether sceVideoOutVrrUnpegFromFixedRate exists on this firmware (looked
-// up at runtime: the SDK's link stub lacks it). Logs the result once.
+// sceVideoOutVrrUnpegFromFixedRate is linked through our extended video out
+// stub (the SDK's lacks it); logs that once and returns true.
 bool IsVrrUnpegAvailable();
 
 // Release a VRR output from its fixed 120 Hz peg, so the display follows the
