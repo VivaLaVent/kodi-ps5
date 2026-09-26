@@ -67,15 +67,8 @@ protected:
   void PresentRenderImpl(bool rendered) override {}
 
 private:
-  void AccountSwap(std::chrono::steady_clock::time_point before,
-                   std::chrono::steady_clock::time_point after);
-  std::chrono::steady_clock::time_point m_swapWindowStart;
-  std::chrono::steady_clock::time_point m_lastSwapEnd;
-  unsigned m_swapCount = 0;
-  double m_swapTotalMs = 0;
-  double m_swapMaxMs = 0;
-  double m_swapGapMaxMs = 0;
   bool m_videoOutLogged = false;
+  std::chrono::steady_clock::time_point m_nextVrrPresent{}; // VRR presentation cadence
 
   bool CreateContext();
   void QueryOutputGeometry();

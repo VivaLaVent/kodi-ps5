@@ -463,7 +463,7 @@ int main(int argc, char* argv[])
 
   // Switches that stay in place (unlike reset/uninstall) are read here, once,
   // and each found switch sets an environment variable that the rest of the
-  // port (window system, decoder, renderer, GL profiler, GL driver) reads.
+  // port (the hardware decoder) reads.
   static const struct
   {
     const char* file;
@@ -471,9 +471,6 @@ int main(int argc, char* argv[])
   } kSwitches[] = {
       {"/app0/kodi-debug", "KODI_PS5_DEBUG"},
       {"/app0/kodi-swdecode", "KODI_PS5_SWDECODE"},
-      {"/app0/kodi-pbo", "KODI_PS5_PBO"},
-      {"/app0/kodi-tex2d", "KODI_PS5_TEX2D"},
-      {"/app0/kodi-probe-modes", "KODI_PS5_PROBE_MODES"},
   };
   for (const auto& sw : kSwitches)
   {

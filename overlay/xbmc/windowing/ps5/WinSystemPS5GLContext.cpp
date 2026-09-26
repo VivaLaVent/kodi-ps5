@@ -195,14 +195,13 @@ bool CWinSystemPS5GLContext::SetFullScreen(bool fullScreen,
                                            RESOLUTION_INFO& res,
                                            bool blankOtherDisplays)
 {
-  // One size (the GL SDK profile); the refresh rate is switchable between the
-  // system rate and 120 Hz. Recreating the surface is only needed when the
-  // window does not exist yet.
+  // One size (the GL SDK profile). The output runs at the system rate, or in
+  // VRR at a "(PS5 VRR)" mode's rate during playback. Recreating the surface is
+  // only needed when the window does not exist yet.
   if (!m_bWindowCreated && !CreateNewWindow("Kodi", true, res))
     return false;
 
-  if (res.fRefreshRate > 0.0f && std::abs(res.fRefreshRate - m_fRefreshRate) > 0.01f)
-    SwitchOutputRate(res.fRefreshRate);
+  SwitchOutputRate(res);
 
   res.iWidth = m_nWidth;
   res.iHeight = m_nHeight;
@@ -226,14 +225,25 @@ void CWinSystemPS5GLContext::PresentRender(bool rendered, bool videoLayer)
 
   if (rendered || videoLayer)
   {
+    // Under VRR the display refreshes when we present: pace presentation at
+    // the target rate, so e.g. 25 fps video is shown at an even 50 Hz.
+    if (const float vrrHz = VrrTargetRate(); vrrHz > 0.0f)
+    {
+      const auto period = std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+          std::chrono::duration<double>(1.0 / static_cast<double>(vrrHz)));
+      const auto now = std::chrono::steady_clock::now();
+      if (m_nextVrrPresent < now - period || m_nextVrrPresent > now + 2 * period)
+        m_nextVrrPresent = now; // (re)start the cadence
+      std::this_thread::sleep_until(m_nextVrrPresent);
+      m_nextVrrPresent += period;
+    }
+
     // eglSwapBuffers is our only vertical-sync source.
-    const auto before = std::chrono::steady_clock::now();
     if (!m_eglContext.TrySwapBuffers())
     {
       CEGLUtils::Log(LOGERROR, "eglSwapBuffers failed");
       throw std::runtime_error("eglSwapBuffers failed");
     }
-    AccountSwap(before, std::chrono::steady_clock::now());
     // The driver opens the video output with the first presented frame:
     // then report it and adopt the system's real refresh rate (e.g. 59.94).
     if (!m_videoOutLogged)
@@ -265,33 +275,4 @@ void CWinSystemPS5GLContext::PresentRender(bool rendered, bool videoLayer)
     // Nothing changed this frame: yield instead of spinning a core.
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
   }
-}
-
-// Frame pacing diagnostics: how often frames really reach the display and
-// how long a swap blocks (it should wait for vertical sync). Logged every
-// 5 seconds while frames are being presented.
-void CWinSystemPS5GLContext::AccountSwap(std::chrono::steady_clock::time_point before,
-                                         std::chrono::steady_clock::time_point after)
-{
-  using namespace std::chrono;
-  const double swapMs = duration<double, std::milli>(after - before).count();
-  if (m_swapCount == 0)
-    m_swapWindowStart = before;
-  else
-    m_swapGapMaxMs = std::max(m_swapGapMaxMs, duration<double, std::milli>(before - m_lastSwapEnd).count());
-  m_lastSwapEnd = after;
-  ++m_swapCount;
-  m_swapTotalMs += swapMs;
-  m_swapMaxMs = std::max(m_swapMaxMs, swapMs);
-
-  const double windowS = duration<double>(after - m_swapWindowStart).count();
-  if (windowS < 5.0)
-    return;
-  CLog::Log(LOGDEBUG,
-            "PS5 present: {:.1f} frames/s over {:.1f} s, swap blocks avg {:.2f} ms / max {:.2f} ms, "
-            "longest gap between swaps {:.1f} ms",
-            m_swapCount / windowS, windowS, m_swapTotalMs / m_swapCount, m_swapMaxMs,
-            m_swapGapMaxMs);
-  m_swapCount = 0;
-  m_swapTotalMs = m_swapMaxMs = m_swapGapMaxMs = 0;
 }

@@ -58,24 +58,28 @@ public:
   // presented frame): adopt it for the desktop resolution.
   void ApplySystemRefreshRate(float hz);
 
-  // After the first frame: offer the 120 Hz output mode to Kodi if the
-  // system accepts it (Kodi's "Adjust display refresh rate" then uses it).
+  // After the first frame: VRR modes are offered to Kodi's "Adjust display
+  // refresh rate" when the system can do VRR for this title.
   void DetectOutputModes();
 
-  // Switch between the system rate and 120 Hz for a requested refresh rate.
-  // Returns the refresh rate actually in effect.
-  float SwitchOutputRate(float requestedHz);
+  // Kodi selected a display mode: the desktop mode (the system rate) or one of
+  // the "(PS5 VRR)" modes. VRR engages only for those, only while a video
+  // plays, and only with "Adjust display refresh rate: On start/stop".
+  // Returns the refresh rate in effect.
+  float SwitchOutputRate(const RESOLUTION_INFO& res);
 
   // Back to the system's own mode (on exit).
   void RestoreOutputMode();
 
-  // The output's real refresh rate (Kodi's mode list may say otherwise, e.g.
-  // when a requested mode could not be set up exactly).
+  // The output's refresh rate as set up (the VRR target during VRR).
   float OutputRefreshRate() const { return m_fRefreshRate; }
 
-  // The vblank clock found vblanks arriving at a rate other than the output's
-  // (e.g. the PS5's own VRR setting turned the 120 Hz mode into VRR): don't
-  // use it again until the next output mode change.
+  // During VRR the window system paces presentation at this rate (0: fixed-
+  // rate output at the system rate, no pacing).
+  float VrrTargetRate() const { return m_vrrTargetHz; }
+
+  // The vblank clock found vblanks arriving at a rate other than the output's:
+  // don't use it again until the next output mode change.
   void SetVblankClockUnreliable() { m_vblankClockUnreliable = true; }
   bool IsVblankClockUnreliable() const { return m_vblankClockUnreliable; }
 
@@ -107,27 +111,16 @@ protected:
   float m_outputRefresh{60.0f};
 #endif
 
-  float m_systemRefresh{0.0f};    // rate of the system's default mode (0: not known yet)
-  bool m_highRefreshAvailable{false};
-  // explicit-rate modes the system accepted in a kodi-probe-modes trial
-  // (saved in special://home/ps5-output-modes.txt)
-  bool m_rate23976Available{false};
-  bool m_rate50Available{false};
-  uint64_t m_rate23976Field{0}; // refresh-field value the trial verified
-  uint64_t m_rate50Field{0};
-
-  enum class ActiveOutput
-  {
-    System,   // the system's own mode (59.94 Hz): GUI and stopped state
-    High120,  // the 120 Hz preset (119.88 Hz)
-    Rate23976, // explicit 23.976 Hz
-    Rate50,   // explicit 50 Hz
-  };
-  ActiveOutput m_activeOutput{ActiveOutput::System};
-
-  void RunModeTrial();
-  void LoadModeResults();
+  float m_systemRefresh{0.0f}; // the system's own rate (0: not known yet)
+  bool m_vrrAvailable{false};  // high-refresh preset + VRR unpeg available
+  bool m_vrrActive{false};
+  float m_vrrTargetHz{0.0f};
   bool m_vblankClockUnreliable{false};
+
+  // VRR modes offered to Kodi: the lowest multiple of common frame rates
+  // within the PS5's VRR range (48-120 Hz)
+  static constexpr float kVrrRates[] = {48.0f, 50.0f, 59.94f, 60.0f, 71.928f};
+  static constexpr const char* kVrrModeTag = "(PS5 VRR)";
 
   CCriticalSection m_resourceSection;
   std::vector<IDispResource*> m_resources;

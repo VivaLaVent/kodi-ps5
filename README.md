@@ -21,8 +21,9 @@ working on 4.03 (ItemzFlow + etaHEN 2.3b).
 | Works | Not yet |
 | --- | --- |
 | Estuary GUI rendered natively at 3840x2160 (OpenGL 4.6 on the PS5 GPU) | HEVC Main10 / HDR in hardware (10-bit uses FFmpeg) |
-| Refresh-rate switching with Kodi's *Adjust display refresh rate* (fixed-rate modes only): the lowest integer multiple of the video's frame rate, so 23.976/24 fps play at 119.88 Hz (5:1) and everything else at the system's 59.94 Hz | 24/25/50 Hz output modes (not offered to titles as far as known); 25/50 fps content stays at 59.94 Hz |
-| Display vsync clock for *Sync playback to display* (speed/pitch only; never changes the output rate) | VRR (not supported; switch it off in the PS5 settings) |
+| Fixed output at the system rate (59.94 Hz) in the menus and whenever no video plays | Fixed 24/25/50 Hz output modes (not offered to titles) |
+| VRR during playback with *Adjust display refresh rate: On start/stop*: the lowest multiple of the video's frame rate within 48–120 Hz (23.976 → 71.93, 24 → 48, 25 → 50, 29.97 → 59.94) | VRR where the firmware lacks `sceVideoOutVrrUnpegFromFixedRate` (then: system rate) |
+| Display vsync clock for *Sync playback to display* (speed/pitch only; never changes the output rate) | |
 | DualSense navigation (as keyboard events) | Internet access via curl (add-on repository, online streams) |
 | Audio (UI sounds, playback) | Python add-ons (Python is not built yet) |
 | Video playback: H.264 and HEVC Main in hardware (VideoDec2), everything else in FFmpeg | Binary add-ons (no `dlopen` in a title) |
@@ -31,23 +32,22 @@ working on 4.03 (ItemzFlow + etaHEN 2.3b).
 
 ### Display behaviour
 
-- Kodi always runs at the rate the console had when Kodi started (the system
-  rate, 59.94 Hz): in the menus and whenever no video plays.
-- Only *Settings → Player → Videos → Adjust display refresh rate* (**On
-  start/stop**) changes the output, for the duration of a video: to the
-  lowest integer multiple of its frame rate that an output mode offers (the
-  exact rate first). The modes are the system rate, 119.88 Hz, and 23.976 /
-  50 Hz where a `kodi-probe-modes` trial verified them. Without those, 120 Hz
-  is used only for 23.976/24 fps films and 25/50 fps stay at 59.94 Hz; with
-  them, films play at 23.976 Hz and 25/50 fps at 50 Hz.
+- Kodi runs at the system rate (59.94 Hz) in the menus and whenever no video
+  plays. It never uses a fixed 120 Hz output.
+- With *Settings → Player → Videos → Adjust display refresh rate* on **On
+  start/stop**, a video plays in **VRR** at the lowest multiple of its frame
+  rate within the PS5's VRR range of 48–120 Hz: 23.976 fps at 71.93 Hz, 24
+  at 48, 25 at 50, 29.97 at 59.94, 30/60 at 60. Kodi presents frames at
+  exactly that rate and the TV follows. Stopping the video returns to the
+  system rate. Every other setting keeps the system rate.
+- VRR needs, on the PS5: **VRR** on and **Enable 120 Hz Output** on
+  Automatic (*Screen and Video*): the system runs VRR through its high-
+  refresh mode, which Kodi releases from its 120 Hz peg with
+  `sceVideoOutVrrUnpegFromFixedRate`. If that fails - or the firmware lacks
+  the function - Kodi goes straight back to the system rate and logs why.
 - *Sync playback to display* is independent: it only adjusts playback speed
-  (and audio pitch) to the display clock, as Kodi designed it.
-- **VRR:** not supported. Switch VRR off in the PS5's *Screen and Video*
-  settings: with it on, the system turns the 119.88 Hz mode into VRR, and the
-  display clock then falls back to Kodi's system clock.
-- The 119.88 Hz mode needs *Enable 120 Hz Output* (Automatic) on the PS5.
-- At 120 Hz the render budget is tight: the player debug overlay (L3) and a
-  long-open OSD can cost frames. Normal playback is unaffected.
+  (and audio pitch) to the display clock. During VRR the display follows
+  Kodi, so Kodi uses its system clock.
 
 ## How it works
 
@@ -131,11 +131,8 @@ processes, so FTP cannot delete Kodi's data — these let Kodi do it:
 | --- | --- |
 | `kodi-reset` | wipe Kodi's data once, then start fresh |
 | `kodi-uninstall` | wipe Kodi's data and quit; the title folder can then be deleted over FTP |
-| `kodi-debug` | debug-level logging, plus frame timing, GL call and GL-driver profiles in klog (slower; remove when done) |
+| `kodi-debug` | debug-level logging (slower; remove when done) |
 | `kodi-swdecode` | software (FFmpeg) video decoding only, no hardware decoder |
-| `kodi-pbo` | video frame uploads through pixel buffer objects (for comparison) |
-| `kodi-tex2d` | video frames in 2D instead of rectangle textures (slow with this GL driver; for comparison) |
-| `kodi-probe-modes` | one-time output-mode trial: logs the mode presets the system accepts, then tries explicit 23.976 Hz and 50 Hz output (the TV blanks briefly for each) and saves the rates that worked to `ps5-output-modes.txt` in Kodi's data folder; later starts offer those rates to *Adjust display refresh rate*. Remove the switch afterwards; `kodi-reset` deletes the results |
 
 ### Adding network sources
 
@@ -206,8 +203,10 @@ Things that differ from a FreeBSD desktop and cost a crash each to find:
 - **Display.** The GL driver's render size is a build profile (2160p60 by
   default, `PS5_SCANOUT_HEIGHT` in `scripts/18-build-ps5-opengl.sh`); on
   another output the PS5 scales, and Kodi's log names the matching profile.
-  Output modes a title may request are presets: the system rate (59.94 Hz)
-  and 120 Hz (119.88 Hz, with the high-refresh flags in `param.json`).
+  A title may request two output presets: the system's mode and the
+  high-refresh one (`param.json` high-refresh flags), which the PS5 turns
+  into VRR; explicit refresh rates are refused (`UNSUPPORTED_OUTPUT_MODE`),
+  so fixed 24/25/50 Hz are not available to titles.
 - **GL driver.** 2D R8/RG8 textures are tiled and uploaded pixel by pixel, so
   video frames use rectangle textures (patch 0008); the driver reports wrong
   buffer ages, so Kodi redraws the whole screen each frame.
@@ -216,9 +215,9 @@ Things that differ from a FreeBSD desktop and cost a crash each to find:
 
 1. Hardware decoding: HEVC Main10 and HDR, zero-copy into GL.
 2. Internet access (curl/TLS).
-3. GL driver: cheaper clears and draws at 4K (render headroom at 120 Hz),
-   runtime-selected render size, a third display buffer.
-4. Explicit 23.976/50 Hz output modes (`kodi-probe-modes` trial, then wider use).
+3. GL driver: cheaper clears and draws at 4K (render headroom for VRR at
+   higher rates), runtime-selected render size, a third display buffer.
+4. VRR on firmware without the unpeg function (if another route exists).
 5. A real DualSense joystick driver, on-screen keyboard.
 6. Python, binary add-ons.
 
