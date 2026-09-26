@@ -24,6 +24,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <fstream>
 #include <utility>
 #include <unistd.h>
@@ -162,7 +163,7 @@ void CWinSystemPS5::ApplySystemRefreshRate(float hz)
 void CWinSystemPS5::DetectOutputModes()
 {
   m_highRefreshAvailable = KODI::PLATFORM::PS5::IsHighRefreshSupported();
-  if (access("/app0/kodi-probe-modes", F_OK) == 0)
+  if (getenv("KODI_PS5_PROBE_MODES")) // switch kodi-probe-modes, read by main.cpp
   {
     KODI::PLATFORM::PS5::LogOutputModeSurvey();
     KODI::PLATFORM::PS5::LogModeStructLayout();

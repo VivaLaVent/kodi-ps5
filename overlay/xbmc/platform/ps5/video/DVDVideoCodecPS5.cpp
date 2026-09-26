@@ -21,6 +21,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
 
 #include <unistd.h>
@@ -79,7 +80,7 @@ void CDVDVideoCodecPS5::Register()
 
 bool CDVDVideoCodecPS5::Open(CDVDStreamInfo& hints, CDVDCodecOptions& options)
 {
-  if (access("/app0/kodi-swdecode", F_OK) == 0)
+  if (getenv("KODI_PS5_SWDECODE") != nullptr)
   {
     CLog::Log(LOGINFO, "CDVDVideoCodecPS5: kodi-swdecode present, using software decoding");
     return false;

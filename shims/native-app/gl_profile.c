@@ -10,6 +10,7 @@
  */
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -67,7 +68,7 @@ static int g_enabled = -1;
 static int enabled(void)
 {
   if (g_enabled < 0)
-    g_enabled = access("/app0/kodi-debug", F_OK) == 0;
+    g_enabled = getenv("KODI_PS5_DEBUG") != NULL; /* switch kodi-debug, read by main.cpp */
   return g_enabled;
 }
 
