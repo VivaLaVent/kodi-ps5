@@ -251,6 +251,7 @@ void CWinSystemPS5GLContext::PresentRender(bool rendered, bool videoLayer)
       m_videoOutLogged = KODI::PLATFORM::PS5::LogVideoOutInfo();
       if (m_videoOutLogged)
       {
+        EnsureSystemMode();
         ApplySystemRefreshRate(KODI::PLATFORM::PS5::QueryRefreshRate());
         DetectOutputModes();
         unsigned sysWidth = 0, sysHeight = 0;

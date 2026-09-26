@@ -147,6 +147,20 @@ void CWinSystemPS5::ApplySystemRefreshRate(float hz)
                                         desktop.iScreenHeight, hz);
 }
 
+void CWinSystemPS5::EnsureSystemMode()
+{
+  using namespace KODI::PLATFORM::PS5;
+  const float before = QueryRefreshRate();
+  const int rc = SetOutputMode(kOutputModeDefault);
+  const float after = QueryRefreshRate();
+  CLog::Log(rc == 0 ? LOGINFO : LOGWARNING,
+            "CWinSystemPS5: system mode requested ({:#x}): output {:.3f} Hz before, {:.3f} Hz after",
+            static_cast<uint32_t>(rc), before, after);
+  if (after > 100.0f)
+    CLog::Log(LOGWARNING, "CWinSystemPS5: the system keeps a {:.3f} Hz (VRR) link for this title",
+              after);
+}
+
 void CWinSystemPS5::DetectOutputModes()
 {
   // VRR needs the high-refresh preset (the PS5 turns it into VRR when its

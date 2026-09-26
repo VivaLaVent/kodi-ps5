@@ -12,7 +12,6 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <dlfcn.h>
 
 namespace
 {
@@ -141,6 +140,15 @@ int KODI::PLATFORM::PS5::SetOutputMode(uint32_t mode)
   return 0;
 }
 
+extern "C"
+{
+// kernel module loader: a title has no dlopen (its weak stand-in returns
+// nothing), so symbols outside the SDK's link stubs are found this way
+int sceKernelLoadStartModule(const char* path, size_t argc, const void* argv, uint32_t flags,
+                             void* option, int* result);
+int sceKernelDlsym(int handle, const char* symbol, void** address);
+}
+
 namespace
 {
 using UnpegFn = int (*)(int32_t);
@@ -149,25 +157,34 @@ UnpegFn LookUpUnpeg()
 {
   static const UnpegFn fn = []() -> UnpegFn
   {
-    // the GL driver resolves its video out functions the same way
-    void* module = dlopen("libSceVideoOut.sprx", RTLD_NOW | RTLD_LOCAL);
-    if (!module)
+    int module = -1;
+    const char* const paths[] = {"libSceVideoOut.sprx", "/system/common/lib/libSceVideoOut.sprx"};
+    for (const char* path : paths)
     {
-      const char* err = dlerror();
-      CLog::Log(LOGWARNING, "PS5 VRR: dlopen(libSceVideoOut.sprx) failed ({}): VRR unavailable",
-                err ? err : "no error text");
+      module = sceKernelLoadStartModule(path, 0, nullptr, 0, nullptr, nullptr);
+      CLog::Log(module >= 0 ? LOGINFO : LOGWARNING, "PS5 VRR: module {}: {:#x}", path,
+                static_cast<uint32_t>(module));
+      if (module >= 0)
+        break;
+    }
+    if (module < 0)
+    {
+      CLog::Log(LOGWARNING, "PS5 VRR: video out module not found: VRR unavailable");
       return nullptr;
     }
-    void* sym = dlsym(module, "sceVideoOutVrrUnpegFromFixedRate");
-    if (!sym)
+    void* sym = nullptr;
+    const int rc = sceKernelDlsym(module, "sceVideoOutVrrUnpegFromFixedRate", &sym);
+    if (rc != 0 || !sym)
     {
       // control: a function every build uses, resolved the same way
-      void* control = dlsym(module, "sceVideoOutWaitVblank");
+      void* control = nullptr;
+      const int controlRc = sceKernelDlsym(module, "sceVideoOutWaitVblank", &control);
       CLog::Log(LOGWARNING,
-                "PS5 VRR: sceVideoOutVrrUnpegFromFixedRate not found (control symbol {}): VRR "
-                "unavailable",
-                control ? "found, so this firmware lacks the function"
-                        : "also missing, so the lookup itself fails");
+                "PS5 VRR: sceVideoOutVrrUnpegFromFixedRate not found ({:#x}; control symbol {}): "
+                "VRR unavailable",
+                static_cast<uint32_t>(rc),
+                controlRc == 0 && control ? "found, so this firmware lacks the function"
+                                          : "also missing, so the lookup itself fails");
       return nullptr;
     }
     CLog::Log(LOGINFO, "PS5 VRR: sceVideoOutVrrUnpegFromFixedRate available");

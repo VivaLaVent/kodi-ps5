@@ -58,6 +58,11 @@ public:
   // presented frame): adopt it for the desktop resolution.
   void ApplySystemRefreshRate(float hz);
 
+  // After the first frame: request the system's own mode, so Kodi starts at
+  // the plain system rate (the PS5 may have started the title on a VRR link),
+  // and log what the system then reports.
+  void EnsureSystemMode();
+
   // After the first frame: VRR modes are offered to Kodi's "Adjust display
   // refresh rate" when the system can do VRR for this title.
   void DetectOutputModes();
