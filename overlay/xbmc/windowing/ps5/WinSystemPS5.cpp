@@ -9,6 +9,7 @@
 #include "WinSystemPS5.h"
 
 #include "VideoSyncPS5.h"
+#include "platform/ps5/VideoOutInfo.h"
 
 #include "ServiceBroker.h"
 #include "guilib/DispResource.h"
@@ -63,12 +64,27 @@ void CWinSystemPS5::UpdateResolutions()
 {
   CWinSystemBase::UpdateResolutions();
 
+  // The desktop mode is the system's own rate; 120 Hz is an extra mode.
+  const float desktopHz = m_systemRefresh > 0.0f ? m_systemRefresh : m_outputRefresh;
   RESOLUTION_INFO& desktop = CDisplaySettings::GetInstance().GetResolutionInfo(RES_DESKTOP);
-  UpdateDesktopResolution(desktop, "PS5", m_outputWidth, m_outputHeight, m_outputRefresh, 0);
+  UpdateDesktopResolution(desktop, "PS5", m_outputWidth, m_outputHeight, desktopHz, 0);
   CDisplaySettings::GetInstance().ClearCustomResolutions();
 
-  CLog::Log(LOGINFO, "CWinSystemPS5: output {}x{} @ {:.2f} Hz", m_outputWidth, m_outputHeight,
-            m_outputRefresh);
+  if (m_highRefreshAvailable)
+  {
+    // 119.88 Hz pairs with a 59.94 Hz system rate, 120 with 60
+    const float highHz = std::abs(desktopHz - 59.94f) < 0.05f ? 119.88f : 2.0f * desktopHz;
+    RESOLUTION_INFO high;
+    UpdateDesktopResolution(high, "PS5", m_outputWidth, m_outputHeight, highHz, 0);
+    high.strMode = StringUtils::Format("{}x{} @ {:.2f}Hz (PS5 120 Hz mode)", m_outputWidth,
+                                       m_outputHeight, highHz);
+    GetGfxContext().ResetOverscan(high);
+    CDisplaySettings::GetInstance().AddResolutionInfo(high);
+  }
+  CDisplaySettings::GetInstance().ApplyCalibrations();
+
+  CLog::Log(LOGINFO, "CWinSystemPS5: output {}x{} @ {:.2f} Hz{}", m_outputWidth, m_outputHeight,
+            desktopHz, m_highRefreshAvailable ? ", 120 Hz mode available" : "");
 }
 
 void CWinSystemPS5::Register(IDispResource* resource)
@@ -108,6 +124,8 @@ std::unique_ptr<CVideoSync> CWinSystemPS5::GetVideoSync(CVideoReferenceClock* cl
 
 void CWinSystemPS5::ApplySystemRefreshRate(float hz)
 {
+  if (hz > 0.0f && !m_highRefreshActive)
+    m_systemRefresh = hz;
   if (hz <= 0.0f || std::abs(hz - m_outputRefresh) < 0.005f)
     return;
   CLog::Log(LOGINFO, "CWinSystemPS5: system output runs at {:.3f} Hz (was assuming {:.3f})", hz,
@@ -118,4 +136,50 @@ void CWinSystemPS5::ApplySystemRefreshRate(float hz)
   desktop.fRefreshRate = hz;
   desktop.strMode = StringUtils::Format("{}x{} @ {:.2f}Hz (PS5)", desktop.iScreenWidth,
                                         desktop.iScreenHeight, hz);
+}
+
+void CWinSystemPS5::DetectOutputModes()
+{
+  m_highRefreshAvailable = KODI::PLATFORM::PS5::IsHighRefreshSupported();
+  CLog::Log(LOGINFO, "CWinSystemPS5: 120 Hz output mode {}",
+            m_highRefreshAvailable ? "available" : "not available");
+  if (m_highRefreshAvailable)
+    UpdateResolutions();
+}
+
+float CWinSystemPS5::SwitchOutputRate(float requestedHz)
+{
+  using namespace KODI::PLATFORM::PS5;
+  const bool wantHigh = m_highRefreshAvailable && requestedHz > 100.0f;
+  if (wantHigh == m_highRefreshActive)
+    return m_fRefreshRate;
+
+  const int rc = SetOutputMode(wantHigh ? kOutputModeHighRefresh : kOutputModeDefault);
+  if (rc != 0)
+  {
+    CLog::Log(LOGWARNING, "CWinSystemPS5: switching to {} failed ({:#x}); staying at {:.3f} Hz",
+              wantHigh ? "120 Hz" : "the system rate", static_cast<uint32_t>(rc),
+              m_fRefreshRate);
+    if (wantHigh)
+      m_highRefreshAvailable = false; // do not offer it again this session
+    return m_fRefreshRate;
+  }
+  m_highRefreshActive = wantHigh;
+  float hz = QueryRefreshRate();
+  if (hz <= 0.0f)
+    hz = wantHigh ? requestedHz : (m_systemRefresh > 0.0f ? m_systemRefresh : 60.0f);
+  m_fRefreshRate = hz;
+  m_outputRefresh = hz;
+  CLog::Log(LOGINFO, "CWinSystemPS5: output switched to {:.3f} Hz", hz);
+  return hz;
+}
+
+void CWinSystemPS5::RestoreOutputMode()
+{
+  if (!m_highRefreshActive)
+    return;
+  const int rc = KODI::PLATFORM::PS5::SetOutputMode(KODI::PLATFORM::PS5::kOutputModeDefault);
+  CLog::Log(rc == 0 ? LOGINFO : LOGWARNING, "CWinSystemPS5: restored the system output mode ({:#x})",
+            static_cast<uint32_t>(rc));
+  m_highRefreshActive = false;
 }

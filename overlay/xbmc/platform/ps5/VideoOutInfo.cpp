@@ -42,6 +42,9 @@ int sceVideoOutIsOutputSupported(int32_t handle, uint32_t mode, const void*, con
                                  const void*);
 int ps5_opengl_video_out_handle(void);
 int sceVideoOutGetVblankStatus(int32_t handle, void* status);
+int sceVideoOutConfigureOutput(int32_t handle, uint32_t mode, const void*, const void*,
+                               const void*);
+int sceVideoOutWaitVblank(int32_t handle);
 }
 
 bool KODI::PLATFORM::PS5::LogVideoOutInfo()
@@ -160,4 +163,27 @@ bool KODI::PLATFORM::PS5::QuerySystemResolution(unsigned& width, unsigned& heigh
   width = resolution.fullWidth;
   height = resolution.fullHeight;
   return true;
+}
+
+bool KODI::PLATFORM::PS5::IsHighRefreshSupported()
+{
+  const int32_t handle = ps5_opengl_video_out_handle();
+  return handle >= 0 &&
+         sceVideoOutIsOutputSupported(handle, kOutputModeHighRefresh, nullptr, nullptr, nullptr) >
+             0;
+}
+
+int KODI::PLATFORM::PS5::SetOutputMode(uint32_t mode)
+{
+  const int32_t handle = ps5_opengl_video_out_handle();
+  if (handle < 0)
+    return -1;
+  const int rc = sceVideoOutConfigureOutput(handle, mode, nullptr, nullptr, nullptr);
+  if (rc != 0)
+    return rc;
+  // as the GL driver does after a mode change: let two vblanks pass
+  for (int i = 0; i < 2; ++i)
+    if (const int wait = sceVideoOutWaitVblank(handle); wait != 0)
+      return wait;
+  return 0;
 }

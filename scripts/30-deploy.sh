@@ -197,6 +197,10 @@ p["downloadDataSize"] = max(int(p.get("downloadDataSize", 0)), 2048)  # /downloa
 # Default: game. As a Media app the kernel halves the page tables (128 MiB
 # max) and applies a stricter sandbox; the PS5 GL driver then fails with
 # EGL_BAD_ALLOC. KODI_CATEGORY=media stays available for experiments.
+# High-refresh capable title (the flags ps5-opengl sets for its 120 Hz builds,
+# as ProsperoLight declares): Kodi switches between the system rate and the
+# 120 Hz output mode for its "Adjust display refresh rate" setting.
+p["attribute3"] = int(p.get("attribute3", 0)) | 0x80040
 category = os.environ.get("KODI_CATEGORY", "game")
 if category == "media":
     p["applicationCategoryType"] = 65536

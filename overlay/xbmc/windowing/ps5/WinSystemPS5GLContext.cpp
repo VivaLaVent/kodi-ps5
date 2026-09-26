@@ -18,6 +18,7 @@
 #include "windowing/WindowSystemFactory.h"
 
 #include <algorithm>
+#include <cmath>
 #include <chrono>
 #include <stdexcept>
 #include <thread>
@@ -183,6 +184,8 @@ bool CWinSystemPS5GLContext::CreateNewWindow(const std::string& name,
 
 bool CWinSystemPS5GLContext::DestroyWindow()
 {
+  // the GL driver restores the output mode only in its 120 Hz builds
+  RestoreOutputMode();
   m_eglContext.DestroySurface();
   m_bWindowCreated = false;
   return true;
@@ -192,11 +195,14 @@ bool CWinSystemPS5GLContext::SetFullScreen(bool fullScreen,
                                            RESOLUTION_INFO& res,
                                            bool blankOtherDisplays)
 {
-  // There is exactly one mode. Recreating the surface is only needed when the
-  // window does not exist yet; every other "mode change" is answered with the
-  // fixed output geometry.
+  // One size (the GL SDK profile); the refresh rate is switchable between the
+  // system rate and 120 Hz. Recreating the surface is only needed when the
+  // window does not exist yet.
   if (!m_bWindowCreated && !CreateNewWindow("Kodi", true, res))
     return false;
+
+  if (res.fRefreshRate > 0.0f && std::abs(res.fRefreshRate - m_fRefreshRate) > 0.01f)
+    SwitchOutputRate(res.fRefreshRate);
 
   res.iWidth = m_nWidth;
   res.iHeight = m_nHeight;
@@ -236,6 +242,7 @@ void CWinSystemPS5GLContext::PresentRender(bool rendered, bool videoLayer)
       if (m_videoOutLogged)
       {
         ApplySystemRefreshRate(KODI::PLATFORM::PS5::QueryRefreshRate());
+        DetectOutputModes();
         unsigned sysWidth = 0, sysHeight = 0;
         if (KODI::PLATFORM::PS5::QuerySystemResolution(sysWidth, sysHeight))
         {

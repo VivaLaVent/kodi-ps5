@@ -27,6 +27,17 @@ bool QuerySystemResolution(unsigned& width, unsigned& height);
 // Current output refresh rate in Hz from the system (0 if unknown).
 float QueryRefreshRate();
 
+// Output modes accepted by sceVideoOutConfigureOutput: the system default
+// (the rate the PS5 is set to, e.g. 59.94 Hz) and the 120 Hz preset.
+constexpr uint32_t kOutputModeDefault = 1;
+constexpr uint32_t kOutputModeHighRefresh = 15;
+
+// Whether the system accepts the 120 Hz preset for this title.
+bool IsHighRefreshSupported();
+
+// Switch the output mode; waits for the output to settle. 0 on success.
+int SetOutputMode(uint32_t mode);
+
 // Vblank counter and the process time (microseconds) of the latest vblank.
 bool QueryVblank(uint64_t& count, uint64_t& processTimeUs);
 } // namespace KODI::PLATFORM::PS5

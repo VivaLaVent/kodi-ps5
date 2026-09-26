@@ -58,6 +58,17 @@ public:
   // presented frame): adopt it for the desktop resolution.
   void ApplySystemRefreshRate(float hz);
 
+  // After the first frame: offer the 120 Hz output mode to Kodi if the
+  // system accepts it (Kodi's "Adjust display refresh rate" then uses it).
+  void DetectOutputModes();
+
+  // Switch between the system rate and 120 Hz for a requested refresh rate.
+  // Returns the refresh rate actually in effect.
+  float SwitchOutputRate(float requestedHz);
+
+  // Back to the system's own mode (on exit).
+  void RestoreOutputMode();
+
   bool CanDoWindowed() override { return false; }
   bool SupportsScreenMove() override { return false; }
   bool HasCursor() override { return false; }
@@ -85,6 +96,10 @@ protected:
 #else
   float m_outputRefresh{60.0f};
 #endif
+
+  float m_systemRefresh{0.0f};    // rate of the system's default mode (0: not known yet)
+  bool m_highRefreshAvailable{false};
+  bool m_highRefreshActive{false};
 
   CCriticalSection m_resourceSection;
   std::vector<IDispResource*> m_resources;
