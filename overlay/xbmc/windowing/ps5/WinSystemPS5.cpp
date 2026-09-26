@@ -133,6 +133,8 @@ std::unique_ptr<CVideoSync> CWinSystemPS5::GetVideoSync(CVideoReferenceClock* cl
 
 void CWinSystemPS5::ApplySystemRefreshRate(float hz)
 {
+  if (m_linkIsVrr)
+    hz = 59.94f; // the link's ~120 Hz is not the rate Kodi should run at
   if (hz > 0.0f && !m_vrrActive)
     m_systemRefresh = hz;
   if (hz <= 0.0f || std::abs(hz - m_outputRefresh) < 0.005f)
@@ -156,9 +158,13 @@ void CWinSystemPS5::EnsureSystemMode()
   CLog::Log(rc == 0 ? LOGINFO : LOGWARNING,
             "CWinSystemPS5: system mode requested ({:#x}): output {:.3f} Hz before, {:.3f} Hz after",
             static_cast<uint32_t>(rc), before, after);
-  if (after > 100.0f)
-    CLog::Log(LOGWARNING, "CWinSystemPS5: the system keeps a {:.3f} Hz (VRR) link for this title",
-              after);
+  // With the PS5's VRR setting on, the system keeps the title on a VRR link
+  // (~120 Hz) whatever it requests; the display then follows Kodi's
+  // presentation, so Kodi paces the menus at the system rate, 59.94 Hz.
+  m_linkIsVrr = after > 100.0f;
+  if (m_linkIsVrr)
+    CLog::Log(LOGINFO, "CWinSystemPS5: the system runs Kodi on a VRR link ({:.3f} Hz): menus paced "
+              "at 59.94 Hz", after);
 }
 
 void CWinSystemPS5::DetectOutputModes()
@@ -166,11 +172,14 @@ void CWinSystemPS5::DetectOutputModes()
   // VRR needs the high-refresh preset (the PS5 turns it into VRR when its
   // VRR setting is on) and the function that releases its 120 Hz peg.
   using namespace KODI::PLATFORM::PS5;
+  // VRR for playback: on the system's own VRR link, or through the high-
+  // refresh preset plus the unpeg (as ProsperoLight engages it).
   const bool preset = IsHighRefreshSupported();
   const bool unpeg = IsVrrUnpegAvailable();
-  m_vrrAvailable = preset && unpeg;
-  CLog::Log(LOGINFO, "CWinSystemPS5: VRR for playback {}{}", m_vrrAvailable ? "available" : "not available",
-            m_vrrAvailable ? "" : (preset ? " (no unpeg function)" : " (no high-refresh preset)"));
+  m_vrrAvailable = m_linkIsVrr || (preset && unpeg);
+  CLog::Log(LOGINFO, "CWinSystemPS5: VRR for playback {}{}",
+            m_vrrAvailable ? "available" : "not available",
+            m_linkIsVrr ? " (system VRR link)" : (m_vrrAvailable ? " (high-refresh preset)" : ""));
   if (m_vrrAvailable)
     UpdateResolutions();
 }
@@ -191,6 +200,7 @@ float CWinSystemPS5::SwitchOutputRate(const RESOLUTION_INFO& res)
     if (m_vrrActive)
     {
       OnLostDevice();
+      // as ProsperoLight returns to its launcher: request the system mode
       const int rc = SetOutputMode(kOutputModeDefault);
       m_vrrActive = false;
       m_vrrTargetHz = 0.0f;
@@ -205,16 +215,28 @@ float CWinSystemPS5::SwitchOutputRate(const RESOLUTION_INFO& res)
 
   if (!m_vrrActive)
   {
-    // Engage VRR: the high-refresh preset (the system makes it VRR pegged at
-    // 120 Hz), then release the peg. If either step fails, back to the system
-    // mode at once: a fixed 120 Hz output is never kept.
+    // Engage VRR. On the system's VRR link the display already follows our
+    // presentation; the unpeg is still issued, as ProsperoLight does, but its
+    // result is only logged. Otherwise: the high-refresh preset (the system
+    // makes it VRR pegged at 120 Hz), then the unpeg; if either step fails,
+    // back to the system mode at once, so a fixed 120 Hz output is never kept.
     OnLostDevice();
-    int rc = SetOutputMode(kOutputModeHighRefresh);
-    const char* step = "high-refresh preset";
-    if (rc == 0)
+    int rc = 0;
+    const char* step = "VRR unpeg";
+    if (m_linkIsVrr)
     {
-      step = "VRR unpeg";
-      rc = VrrUnpegFromFixedRate();
+      const int unpegRc = VrrUnpegFromFixedRate();
+      CLog::Log(LOGINFO, "CWinSystemPS5: VRR link: unpeg {:#x}", static_cast<uint32_t>(unpegRc));
+    }
+    else
+    {
+      rc = SetOutputMode(kOutputModeHighRefresh);
+      step = "high-refresh preset";
+      if (rc == 0)
+      {
+        step = "VRR unpeg";
+        rc = VrrUnpegFromFixedRate();
+      }
     }
     if (rc != 0)
     {

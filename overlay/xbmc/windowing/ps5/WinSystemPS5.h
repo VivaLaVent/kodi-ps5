@@ -79,9 +79,13 @@ public:
   // The output's refresh rate as set up (the VRR target during VRR).
   float OutputRefreshRate() const { return m_fRefreshRate; }
 
-  // During VRR the window system paces presentation at this rate (0: fixed-
-  // rate output at the system rate, no pacing).
-  float VrrTargetRate() const { return m_vrrTargetHz; }
+  // On a VRR link the display refreshes when Kodi presents, so the window
+  // system paces presentation at this rate: the VRR mode's rate during
+  // playback, the system rate (59.94 Hz) otherwise. 0: fixed-rate output.
+  float VrrTargetRate() const
+  {
+    return m_vrrActive ? m_vrrTargetHz : (m_linkIsVrr ? m_systemRefresh : 0.0f);
+  }
 
   // The vblank clock found vblanks arriving at a rate other than the output's:
   // don't use it again until the next output mode change.
@@ -119,6 +123,7 @@ protected:
   float m_systemRefresh{0.0f}; // the system's own rate (0: not known yet)
   bool m_vrrAvailable{false};  // high-refresh preset + VRR unpeg available
   bool m_vrrActive{false};
+  bool m_linkIsVrr{false};     // the system runs the title on a VRR link (PS5 VRR setting)
   float m_vrrTargetHz{0.0f};
   bool m_vblankClockUnreliable{false};
 
