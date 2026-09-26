@@ -35,15 +35,10 @@ CVideoSyncPS5::CVideoSyncPS5(CVideoReferenceClock* clock)
 bool CVideoSyncPS5::Setup()
 {
   m_abort = false;
-  // Under VRR the output follows our presentation: there is no fixed refresh
-  // to lock to, so let Kodi use its system clock (return false).
+  // If the vblanks proved unreliable in this mode (the PS5's VRR setting),
+  // let Kodi use its system clock (return false).
   if (auto* ps5 = dynamic_cast<KODI::WINDOWING::PS5::CWinSystemPS5*>(m_winSystem); ps5)
   {
-    if (ps5->VrrTargetRate() > 0.0f)
-    {
-      CLog::Log(LOGINFO, "CVideoSyncPS5: VRR active, using the system clock");
-      return false;
-    }
     if (ps5->IsVblankClockUnreliable())
     {
       CLog::Log(LOGINFO, "CVideoSyncPS5: vblanks unreliable in this output mode, using the "
@@ -114,8 +109,8 @@ void CVideoSyncPS5::Run(CEvent& stopEvent)
       if (badWindows >= 2)
       {
         CLog::Log(LOGWARNING,
-                  "CVideoSyncPS5: vblanks arrive at {:.2f}/s, not {:.3f} Hz (VRR?): using the "
-                  "system clock for this output mode",
+                  "CVideoSyncPS5: vblanks arrive at {:.2f}/s, not {:.3f} Hz (is VRR on in the "
+                  "PS5 settings?): using the system clock for this output mode",
                   measured, m_fps);
         if (auto* ps5 = dynamic_cast<KODI::WINDOWING::PS5::CWinSystemPS5*>(m_winSystem))
           ps5->SetVblankClockUnreliable();
@@ -145,8 +140,7 @@ float CVideoSyncPS5::OutputRate() const
 
 float CVideoSyncPS5::GetFps()
 {
-  // the real output rate: Kodi's mode list can differ (a 50 Hz VRR mode that
-  // fell back to 119.88 Hz counted 120 vblanks/s as 50: video ran 2.4x fast)
+  // the real output rate, as the window system set it up
   m_fps = OutputRate();
   return m_fps;
 }

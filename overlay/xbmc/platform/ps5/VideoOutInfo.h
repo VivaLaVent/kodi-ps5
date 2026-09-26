@@ -32,17 +32,29 @@ float QueryRefreshRate();
 constexpr uint32_t kOutputModeDefault = 1;
 constexpr uint32_t kOutputModeHighRefresh = 15;
 
+// Refresh-rate codes of the explicit mode API (SceVideoOutRefreshRate; 0x3,
+// 59.94 Hz, is what the system reports for its default mode).
+constexpr uint64_t kRefreshCode23_98 = 0x1;
+constexpr uint64_t kRefreshCode50 = 0x2;
+
+// Explicit refresh rate through the mode-structure API (ModeSetAny_ +
+// ConfigureOutputMode_): every field "any" except the refresh rate. Waits for
+// the output to settle. 0 on success.
+int SetOutputRefreshCode(uint64_t code);
+
+// Diagnostics: what ModeSetAny_ writes into a buffer of ours (the mode
+// structure's layout on this firmware), to the log.
+void LogModeStructLayout();
+
 // Whether the system accepts the 120 Hz preset for this title.
 bool IsHighRefreshSupported();
 
 // Switch the output mode; waits for the output to settle. 0 on success.
 int SetOutputMode(uint32_t mode);
 
-// VRR: after switching to the 120 Hz preset, release the output from its
-// fixed rate so the display follows the title's presentation (as ProsperoLight
-// does for 90 fps). Looked up at runtime: the SDK's link stub lacks it.
-// 0 on success; negative if the function is unavailable.
-int VrrUnpegFromFixedRate();
+// Diagnostics ("kodi-probe-modes" switch): which output mode numbers the
+// system accepts beyond 0-63 (read-only IsOutputSupported queries).
+void LogOutputModeSurvey();
 
 // Vblank counter and the process time (microseconds) of the latest vblank.
 bool QueryVblank(uint64_t& count, uint64_t& processTimeUs);

@@ -8,10 +8,10 @@
 
 #include "VideoOutInfo.h"
 
+#include "utils/StringUtils.h"
 #include "utils/log.h"
 
 #include <cstddef>
-#include <dlfcn.h>
 #include <cstdint>
 #include <string>
 
@@ -46,7 +46,29 @@ int sceVideoOutGetVblankStatus(int32_t handle, void* status);
 int sceVideoOutConfigureOutput(int32_t handle, uint32_t mode, const void*, const void*,
                                const void*);
 int sceVideoOutWaitVblank(int32_t handle);
+// explicit mode API (shapes as documented by the shadPS4 project for the PS4)
+void sceVideoOutModeSetAny_(void* mode, uint32_t size);
+int sceVideoOutConfigureOutputMode_(int32_t handle, uint32_t reserved, const void* mode,
+                                    const void* options, uint32_t modeSize, uint32_t optionsSize);
 }
+
+namespace
+{
+// SceVideoOutMode: size, encoding, range, colorimetry, depth, refresh rate,
+// resolution, reserved. ModeSetAny_ sets every field to "any" (0xff bytes).
+struct VideoOutMode
+{
+  uint32_t size;
+  uint8_t encoding;
+  uint8_t range;
+  uint8_t colorimetry;
+  uint8_t depth;
+  uint64_t refreshRate;
+  uint64_t resolution;
+  uint8_t reserved[8];
+};
+static_assert(sizeof(VideoOutMode) == 32 && offsetof(VideoOutMode, refreshRate) == 8);
+} // namespace
 
 bool KODI::PLATFORM::PS5::LogVideoOutInfo()
 {
@@ -189,39 +211,54 @@ int KODI::PLATFORM::PS5::SetOutputMode(uint32_t mode)
   return 0;
 }
 
-int KODI::PLATFORM::PS5::VrrUnpegFromFixedRate()
+void KODI::PLATFORM::PS5::LogOutputModeSurvey()
+{
+  const int32_t handle = ps5_opengl_video_out_handle();
+  if (handle < 0)
+    return;
+  // Mode numbers 0-4095 and single bits up to bit 31; read-only queries.
+  std::string supported;
+  auto probe = [&](uint32_t mode)
+  {
+    const int r = sceVideoOutIsOutputSupported(handle, mode, nullptr, nullptr, nullptr);
+    if (r > 0)
+      supported += StringUtils::Format("{}{:#x}{}", supported.empty() ? "" : " ", mode,
+                                       r != 1 ? StringUtils::Format("({})", r) : "");
+  };
+  for (uint32_t mode = 0; mode < 4096; ++mode)
+    probe(mode);
+  for (uint32_t bit = 12; bit < 32; ++bit)
+    probe(1u << bit);
+  CLog::Log(LOGINFO, "PS5 video out: output mode survey (0-0xfff, bits 12-31): {}",
+            supported.empty() ? "none" : supported);
+}
+
+void KODI::PLATFORM::PS5::LogModeStructLayout()
+{
+  // A 64-byte buffer of zeroes, told it is 32 bytes: the log shows which
+  // bytes the system writes (expected: size 0x20, then 0xff "any" to byte 31).
+  uint8_t buffer[64] = {};
+  sceVideoOutModeSetAny_(buffer, sizeof(VideoOutMode));
+  std::string hex;
+  for (size_t i = 0; i < sizeof(buffer); ++i)
+    hex += StringUtils::Format("{}{:02x}", (i && i % 8 == 0) ? " " : "", buffer[i]);
+  CLog::Log(LOGINFO, "PS5 video out: ModeSetAny_(32 bytes) wrote: {}", hex);
+}
+
+int KODI::PLATFORM::PS5::SetOutputRefreshCode(uint64_t code)
 {
   const int32_t handle = ps5_opengl_video_out_handle();
   if (handle < 0)
     return -1;
-  using UnpegFn = int (*)(int32_t);
-  static UnpegFn unpeg = []() -> UnpegFn
-  {
-    // the GL driver loads its video out functions the same way
-    void* module = dlopen("libSceVideoOut.sprx", RTLD_NOW | RTLD_LOCAL);
-    if (!module)
-    {
-      const char* err = dlerror();
-      CLog::Log(LOGWARNING, "PS5 video out: dlopen(libSceVideoOut.sprx) failed: {}",
-                err ? err : "no error text");
-      return nullptr;
-    }
-    void* sym = dlsym(module, "sceVideoOutVrrUnpegFromFixedRate");
-    if (!sym)
-    {
-      const char* err = dlerror();
-      // control: a function the GL driver resolves the same way
-      void* control = dlsym(module, "sceVideoOutWaitVblank");
-      CLog::Log(LOGWARNING,
-                "PS5 video out: sceVideoOutVrrUnpegFromFixedRate not exported ({}); control "
-                "symbol sceVideoOutWaitVblank {}",
-                err ? err : "no error text", control ? "found" : "also missing");
-      return nullptr;
-    }
-    CLog::Log(LOGINFO, "PS5 video out: VRR unpeg function found");
-    return reinterpret_cast<UnpegFn>(sym);
-  }();
-  if (!unpeg)
-    return -2;
-  return unpeg(handle);
+  VideoOutMode mode;
+  sceVideoOutModeSetAny_(&mode, sizeof(mode));
+  mode.refreshRate = code;
+  const int rc =
+      sceVideoOutConfigureOutputMode_(handle, 0, &mode, nullptr, sizeof(mode), 0);
+  if (rc != 0)
+    return rc;
+  for (int i = 0; i < 2; ++i)
+    if (const int wait = sceVideoOutWaitVblank(handle); wait != 0)
+      return wait;
+  return 0;
 }

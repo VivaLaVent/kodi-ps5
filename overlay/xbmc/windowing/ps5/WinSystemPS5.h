@@ -69,17 +69,13 @@ public:
   // Back to the system's own mode (on exit).
   void RestoreOutputMode();
 
-  // VRR: the output follows our presentation; the window system paces
-  // presentation at this rate (0: fixed-rate output, no pacing).
-  float VrrTargetRate() const { return m_vrrTargetHz; }
-
   // The output's real refresh rate (Kodi's mode list may say otherwise, e.g.
   // when a requested mode could not be set up exactly).
   float OutputRefreshRate() const { return m_fRefreshRate; }
 
   // The vblank clock found vblanks arriving at a rate other than the output's
-  // (e.g. the system turned the output into VRR): don't use it again until
-  // the next output mode change.
+  // (e.g. the PS5's own VRR setting turned the 120 Hz mode into VRR): don't
+  // use it again until the next output mode change.
   void SetVblankClockUnreliable() { m_vblankClockUnreliable = true; }
   bool IsVblankClockUnreliable() const { return m_vblankClockUnreliable; }
 
@@ -113,12 +109,23 @@ protected:
 
   float m_systemRefresh{0.0f};    // rate of the system's default mode (0: not known yet)
   bool m_highRefreshAvailable{false};
-  bool m_highRefreshActive{false};
-  bool m_vrrAvailable{false};     // experimental, "kodi-vrr" switch; off after a failed unpeg
-  float m_vrrTargetHz{0.0f};
-  bool m_vblankClockUnreliable{false};
+  // explicit-rate modes the system accepted in a kodi-probe-modes trial
+  // (saved in special://home/ps5-output-modes.txt)
+  bool m_rate23976Available{false};
+  bool m_rate50Available{false};
 
-  static constexpr float kVrrModeHz = 50.0f; // 25/50 fps content (VRR range 48-120 Hz)
+  enum class ActiveOutput
+  {
+    System,   // the system's own mode (59.94 Hz): GUI and stopped state
+    High120,  // the 120 Hz preset (119.88 Hz)
+    Rate23976, // explicit 23.976 Hz
+    Rate50,   // explicit 50 Hz
+  };
+  ActiveOutput m_activeOutput{ActiveOutput::System};
+
+  void RunModeTrial();
+  void LoadModeResults();
+  bool m_vblankClockUnreliable{false};
 
   CCriticalSection m_resourceSection;
   std::vector<IDispResource*> m_resources;
