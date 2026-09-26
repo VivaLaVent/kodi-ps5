@@ -11,6 +11,8 @@
 #include "utils/StringUtils.h"
 #include "utils/log.h"
 
+#include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -50,6 +52,10 @@ int sceVideoOutWaitVblank(int32_t handle);
 void sceVideoOutModeSetAny_(void* mode, uint32_t size);
 int sceVideoOutConfigureOutputMode_(int32_t handle, uint32_t reserved, const void* mode,
                                     const void* options, uint32_t modeSize, uint32_t optionsSize);
+// option-structure initialisers (shapes unknown: called on an oversized
+// zeroed buffer with a size argument; a pointer-only function ignores it)
+void sceVideoOutConfigureOptionsInitialize_(void* options, uint32_t size);
+void sceVideoOutInitializeOutputOptions(void* options, uint32_t size);
 }
 
 namespace
@@ -245,6 +251,38 @@ void KODI::PLATFORM::PS5::LogModeStructLayout()
   CLog::Log(LOGINFO, "PS5 video out: ModeSetAny_(32 bytes) wrote: {}", hex);
 }
 
+namespace
+{
+int g_shapeInitialiser = 0;
+uint32_t g_shapeSize = 0;
+
+// options buffer for a call shape (empty: none)
+std::vector<uint8_t> BuildOptions(int initialiser, uint32_t size)
+{
+  std::vector<uint8_t> buffer;
+  if (initialiser == 1 || initialiser == 2)
+  {
+    buffer.assign(256, 0);
+    if (initialiser == 1)
+      sceVideoOutConfigureOptionsInitialize_(buffer.data(), size);
+    else
+      sceVideoOutInitializeOutputOptions(buffer.data(), size);
+  }
+  return buffer;
+}
+} // namespace
+
+void KODI::PLATFORM::PS5::SetModeCallShape(int initialiser, uint32_t size)
+{
+  g_shapeInitialiser = initialiser;
+  g_shapeSize = size;
+}
+
+std::pair<int, uint32_t> KODI::PLATFORM::PS5::GetModeCallShape()
+{
+  return {g_shapeInitialiser, g_shapeSize};
+}
+
 int KODI::PLATFORM::PS5::SetOutputRefreshCode(uint64_t code)
 {
   const int32_t handle = ps5_opengl_video_out_handle();
@@ -253,12 +291,124 @@ int KODI::PLATFORM::PS5::SetOutputRefreshCode(uint64_t code)
   VideoOutMode mode;
   sceVideoOutModeSetAny_(&mode, sizeof(mode));
   mode.refreshRate = code;
-  const int rc =
-      sceVideoOutConfigureOutputMode_(handle, 0, &mode, nullptr, sizeof(mode), 0);
+  const std::vector<uint8_t> options = BuildOptions(g_shapeInitialiser, g_shapeSize);
+  const int rc = sceVideoOutConfigureOutputMode_(handle, 0, &mode,
+                                                 options.empty() ? nullptr : options.data(),
+                                                 sizeof(mode), options.empty() ? 0 : g_shapeSize);
   if (rc != 0)
     return rc;
   for (int i = 0; i < 2; ++i)
     if (const int wait = sceVideoOutWaitVblank(handle); wait != 0)
       return wait;
   return 0;
+}
+
+namespace
+{
+std::string Hex(const uint8_t* data, size_t size)
+{
+  std::string hex;
+  for (size_t i = 0; i < size; ++i)
+    hex += StringUtils::Format("{}{:02x}", (i && i % 8 == 0) ? " " : "", data[i]);
+  return hex;
+}
+
+bool BackToSystemMode(int32_t handle)
+{
+  const int rc = sceVideoOutConfigureOutput(handle, KODI::PLATFORM::PS5::kOutputModeDefault,
+                                            nullptr, nullptr, nullptr);
+  for (int i = 0; i < 2 && rc == 0; ++i)
+    sceVideoOutWaitVblank(handle);
+  if (rc != 0)
+    CLog::Log(LOGWARNING, "PS5 mode experiment: return to the system mode failed ({:#x})",
+              static_cast<uint32_t>(rc));
+  return rc == 0;
+}
+} // namespace
+
+std::vector<bool> KODI::PLATFORM::PS5::ExperimentExplicitRates(
+    const std::vector<std::pair<uint64_t, float>>& rates)
+{
+  std::vector<bool> usable(rates.size(), false);
+  const int32_t handle = ps5_opengl_video_out_handle();
+  if (handle < 0)
+    return usable;
+
+  struct Shape
+  {
+    std::string name;
+    std::vector<uint8_t> options; // empty: no options (nullptr, size 0)
+    uint32_t optionsSize = 0;
+    int initialiser = 0;
+  };
+  std::vector<Shape> shapes;
+  shapes.push_back({"no options", {}, 0, 0});
+  const char* const names[] = {"", "ConfigureOptionsInitialize_", "InitializeOutputOptions"};
+  for (int init = 1; init <= 2; ++init)
+  {
+    for (uint32_t size : {8u, 16u, 24u, 32u, 48u, 64u})
+    {
+      std::vector<uint8_t> buffer = BuildOptions(init, size);
+      size_t written = 0;
+      for (size_t i = 0; i < buffer.size(); ++i)
+        if (buffer[i])
+          written = i + 1;
+      CLog::Log(LOGINFO, "PS5 mode experiment: {}(size {}) wrote {} bytes: {}", names[init], size,
+                written, Hex(buffer.data(), std::max<size_t>(written, 8)));
+      shapes.push_back({StringUtils::Format("{}({})", names[init], size), buffer, size, init});
+    }
+  }
+
+  // 1. which call shape does the library accept for an all-"any" mode?
+  const Shape* accepted = nullptr;
+  for (const auto& shape : shapes)
+  {
+    VideoOutMode mode;
+    sceVideoOutModeSetAny_(&mode, sizeof(mode));
+    const int rc = sceVideoOutConfigureOutputMode_(
+        handle, 0, &mode, shape.options.empty() ? nullptr : shape.options.data(),
+        sizeof(mode), shape.optionsSize);
+    CLog::Log(rc == 0 ? LOGINFO : LOGWARNING,
+              "PS5 mode experiment: any-mode with {}: {:#x}", shape.name,
+              static_cast<uint32_t>(rc));
+    if (rc == 0)
+    {
+      BackToSystemMode(handle);
+      if (!accepted)
+        accepted = &shape;
+    }
+  }
+  if (!accepted)
+  {
+    CLog::Log(LOGWARNING, "PS5 mode experiment: no call shape accepted; explicit rates untested");
+    return usable;
+  }
+  CLog::Log(LOGINFO, "PS5 mode experiment: using the call shape '{}'", accepted->name);
+  SetModeCallShape(accepted->initialiser, accepted->optionsSize);
+
+  // 2. the refresh rates with that shape
+  for (size_t r = 0; r < rates.size(); ++r)
+  {
+    VideoOutMode mode;
+    sceVideoOutModeSetAny_(&mode, sizeof(mode));
+    mode.refreshRate = rates[r].first;
+    const int rc = sceVideoOutConfigureOutputMode_(
+        handle, 0, &mode, accepted->options.empty() ? nullptr : accepted->options.data(),
+        sizeof(mode), accepted->optionsSize);
+    float reported = 0.0f;
+    if (rc == 0)
+    {
+      for (int i = 0; i < 2; ++i)
+        sceVideoOutWaitVblank(handle);
+      reported = QueryRefreshRate();
+    }
+    usable[r] = rc == 0 && std::abs(reported - rates[r].second) < 0.1f;
+    CLog::Log(usable[r] ? LOGINFO : LOGWARNING,
+              "PS5 mode experiment: {:.3f} Hz (code {:#x}): {:#x}, system reports {:.3f} Hz -> {}",
+              rates[r].second, rates[r].first, static_cast<uint32_t>(rc), reported,
+              usable[r] ? "usable" : "not usable");
+    if (rc == 0)
+      BackToSystemMode(handle);
+  }
+  return usable;
 }

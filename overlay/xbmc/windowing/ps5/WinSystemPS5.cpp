@@ -186,26 +186,20 @@ std::string ModeResultsPath()
 
 void CWinSystemPS5::RunModeTrial()
 {
-  // One attempt per explicit rate, always back to the system mode after it.
-  // The TV blanks briefly for each. Only verified rates are saved.
+  // One experiment run (kodi-probe-modes): the TV blanks briefly for every
+  // mode change the system accepts. Only verified rates are saved.
   using namespace KODI::PLATFORM::PS5;
+  const std::vector<std::pair<uint64_t, float>> rates = {{kRefreshCode23_98, 23.976f},
+                                                         {kRefreshCode50, 50.0f}};
+  const std::vector<bool> usable = ExperimentExplicitRates(rates);
   std::string verified;
-  for (const auto& [code, hz] :
-       {std::pair{kRefreshCode23_98, 23.976f}, std::pair{kRefreshCode50, 50.0f}})
+  for (size_t i = 0; i < rates.size(); ++i)
+    if (usable[i])
+      verified += StringUtils::Format("{:.3f}\n", rates[i].second);
+  if (!verified.empty())
   {
-    const int rc = SetOutputRefreshCode(code);
-    const float reported = rc == 0 ? QueryRefreshRate() : 0.0f;
-    const bool ok = rc == 0 && std::abs(reported - hz) < 0.1f;
-    CLog::Log(ok ? LOGINFO : LOGWARNING,
-              "CWinSystemPS5: trial {:.3f} Hz (code {:#x}): configure {:#x}, system reports "
-              "{:.3f} Hz -> {}",
-              hz, code, static_cast<uint32_t>(rc), reported, ok ? "usable" : "not usable");
-    const int back = SetOutputMode(kOutputModeDefault);
-    if (back != 0)
-      CLog::Log(LOGWARNING, "CWinSystemPS5: trial: return to the system mode failed ({:#x})",
-                static_cast<uint32_t>(back));
-    if (ok)
-      verified += StringUtils::Format("{:.3f}\n", hz);
+    const auto [initialiser, size] = GetModeCallShape();
+    verified = StringUtils::Format("shape {} {}\n", initialiser, size) + verified;
   }
   std::ofstream out(ModeResultsPath(), std::ios::trunc);
   out << verified;
@@ -217,9 +211,18 @@ void CWinSystemPS5::LoadModeResults()
 {
   m_rate23976Available = m_rate50Available = false;
   std::ifstream in(ModeResultsPath());
-  float hz = 0.0f;
-  while (in >> hz)
+  std::string word;
+  while (in >> word)
   {
+    if (word == "shape")
+    {
+      int initialiser = 0;
+      uint32_t size = 0;
+      if (in >> initialiser >> size)
+        KODI::PLATFORM::PS5::SetModeCallShape(initialiser, size);
+      continue;
+    }
+    const float hz = std::strtof(word.c_str(), nullptr);
     if (std::abs(hz - 23.976f) < 0.01f)
       m_rate23976Available = true;
     else if (std::abs(hz - 50.0f) < 0.01f)

@@ -9,6 +9,8 @@
 #pragma once
 
 #include <cstdint>
+#include <utility>
+#include <vector>
 
 namespace KODI::PLATFORM::PS5
 {
@@ -45,6 +47,20 @@ int SetOutputRefreshCode(uint64_t code);
 // Diagnostics: what ModeSetAny_ writes into a buffer of ours (the mode
 // structure's layout on this firmware), to the log.
 void LogModeStructLayout();
+
+// kodi-probe-modes experiment: find a ConfigureOutputMode_ call shape the
+// system accepts (baseline "any" mode, with and without an options structure
+// from either initialiser), then try the given refresh codes with it. Every
+// accepted call is followed by a return to the system mode. Returns, per
+// code, whether the system then reported that rate.
+std::vector<bool> ExperimentExplicitRates(const std::vector<std::pair<uint64_t, float>>& rates);
+
+// The ConfigureOutputMode_ call shape used by SetOutputRefreshCode: options
+// initialiser 0 = none, 1 = ConfigureOptionsInitialize_, 2 =
+// InitializeOutputOptions, with its size argument. The experiment sets it to
+// the shape it found; the window system saves and restores it.
+void SetModeCallShape(int initialiser, uint32_t size);
+std::pair<int, uint32_t> GetModeCallShape();
 
 // Whether the system accepts the 120 Hz preset for this title.
 bool IsHighRefreshSupported();
