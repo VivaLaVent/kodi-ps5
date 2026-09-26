@@ -300,7 +300,7 @@ void CWinSystemPS5GLContext::AccountSwap(std::chrono::steady_clock::time_point b
   const double windowS = duration<double>(after - m_swapWindowStart).count();
   if (windowS < 5.0)
     return;
-  CLog::Log(LOGINFO,
+  CLog::Log(LOGDEBUG,
             "PS5 present: {:.1f} frames/s over {:.1f} s, swap blocks avg {:.2f} ms / max {:.2f} ms, "
             "longest gap between swaps {:.1f} ms",
             m_swapCount / windowS, windowS, m_swapTotalMs / m_swapCount, m_swapMaxMs,

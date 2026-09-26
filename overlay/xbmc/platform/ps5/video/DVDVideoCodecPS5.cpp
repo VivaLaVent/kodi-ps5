@@ -234,7 +234,7 @@ void CDVDVideoCodecPS5::AccountTiming()
   const double window = now - m_statsWindowStart;
   if (window < 5000.0)
     return;
-  CLog::Log(LOGINFO,
+  CLog::Log(LOGDEBUG,
             "CDVDVideoCodecPS5: {:.1f} decodes/s, {:.1f} pictures/s; decode avg {:.2f} ms / max "
             "{:.2f} ms, copy-out avg {:.2f} ms / max {:.2f} ms",
             m_statsDecodes * 1000.0 / window, m_statsPictures * 1000.0 / window,

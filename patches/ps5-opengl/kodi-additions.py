@@ -19,12 +19,19 @@ GUARD = "#if defined(PS5_NATIVE_TITLE_RUNTIME) && defined(PS5_DRAW_PROFILE)\n"
 
 KLOG_BLOCK = """/* KODI-PS5: profiler output to klog (a title's stdout goes nowhere). */
 #include <stdarg.h>
+#include <unistd.h>
 int sceKernelDebugOutText(int channel, const char *text);
 uint64_t sceKernelGetProcessTime(void);
 static int ps5_kodi_klog_printf(const char *format, ...)
    __attribute__((format(printf, 1, 2)));
 static int ps5_kodi_klog_printf(const char *format, ...)
 {
+   /* only with Kodi's kodi-debug switch in the title folder */
+   static int enabled = -1;
+   if (enabled < 0)
+      enabled = access("/app0/kodi-debug", F_OK) == 0;
+   if (!enabled)
+      return 0;
    char line[512];
    const int prefix = snprintf(line, sizeof(line), "[ps5-gl %.3f] ",
                                (double)sceKernelGetProcessTime() / 1000.0);
@@ -95,6 +102,7 @@ int ps5_opengl_video_out_handle(void)
 SUPERSEDED = [
     (SCREEN, '/* KODI-PS5: profiler output to klog (a title\'s stdout goes nowhere). */\n#include <stdarg.h>\nint sceKernelDebugOutText(int channel, const char *text);\nuint64_t sceKernelGetProcessTime(void);\nstatic int ps5_kodi_klog_printf(const char *format, ...)\n   __attribute__((format(printf, 1, 2)));\nstatic int ps5_kodi_klog_printf(const char *format, ...)\n{\n   char line[512];\n   const int prefix = snprintf(line, sizeof(line), "[ps5-gl %.3f] ",\n                               (double)sceKernelGetProcessTime() / 1000.0);\n   va_list args;\n   va_start(args, format);\n   const int written = vsnprintf(line + prefix, sizeof(line) - (size_t)prefix,\n                                 format, args);\n   va_end(args);\n   sceKernelDebugOutText(0, line);\n   return written;\n}\n#define printf ps5_kodi_klog_printf\n'),
     (SCREEN, '/* KODI-PS5: profiler output to klog (a title\'s stdout goes nowhere). */\n#include <stdarg.h>\nint sceKernelDebugOutText(int channel, const char *text);\nuint64_t sceKernelGetProcessTime(void);\nstatic int ps5_kodi_klog_printf(const char *format, ...)\n   __attribute__((format(printf, 1, 2)));\nstatic int ps5_kodi_klog_printf(const char *format, ...)\n{\n   char line[512];\n   const int prefix = snprintf(line, sizeof(line), "[ps5-gl %.3f] ",\n                               (double)sceKernelGetProcessTime() / 1000.0);\n   va_list args;\n   va_start(args, format);\n   const int written = vsnprintf(line + prefix, sizeof(line) - (size_t)prefix,\n                                 format, args);\n   va_end(args);\n   sceKernelDebugOutText(0, line);\n   return written;\n}\n#define printf ps5_kodi_klog_printf\n/* KODI-PS5: which clear path each clear takes (GPU depth, CPU depth, GPU\n * color, CPU color), reported with the profile. */\nstatic uint64_t ps5_kodi_clear_paths[4];\n#define PS5_KODI_COUNT_CLEAR(path) \\\n   __atomic_fetch_add(&ps5_kodi_clear_paths[path], 1, __ATOMIC_RELAXED)\n'),
+    (SCREEN, '/* KODI-PS5: profiler output to klog (a title\'s stdout goes nowhere). */\n#include <stdarg.h>\nint sceKernelDebugOutText(int channel, const char *text);\nuint64_t sceKernelGetProcessTime(void);\nstatic int ps5_kodi_klog_printf(const char *format, ...)\n   __attribute__((format(printf, 1, 2)));\nstatic int ps5_kodi_klog_printf(const char *format, ...)\n{\n   char line[512];\n   const int prefix = snprintf(line, sizeof(line), "[ps5-gl %.3f] ",\n                               (double)sceKernelGetProcessTime() / 1000.0);\n   va_list args;\n   va_start(args, format);\n   const int written = vsnprintf(line + prefix, sizeof(line) - (size_t)prefix,\n                                 format, args);\n   va_end(args);\n   sceKernelDebugOutText(0, line);\n   return written;\n}\n#define printf ps5_kodi_klog_printf\n/* KODI-PS5: which path each clear takes; reported every 1000 clears. */\nstatic uint64_t ps5_kodi_clear_paths[4];\nstatic void ps5_kodi_count_clear(unsigned path) __attribute__((unused));\nstatic void ps5_kodi_count_clear(unsigned path)\n{\n   __atomic_fetch_add(&ps5_kodi_clear_paths[path], 1, __ATOMIC_RELAXED);\n   uint64_t total = 0;\n   for (unsigned i = 0; i < 4; ++i)\n      total += __atomic_load_n(&ps5_kodi_clear_paths[i], __ATOMIC_RELAXED);\n   if (total % 1000 == 0)\n      printf("[ps5-kodi-clears] gpu_depth=%" PRIu64 " cpu_depth=%" PRIu64\n             " gpu_color=%" PRIu64 " cpu_color=%" PRIu64 "\\n",\n             ps5_kodi_clear_paths[0], ps5_kodi_clear_paths[1],\n             ps5_kodi_clear_paths[2], ps5_kodi_clear_paths[3]);\n}\n'),
 ]
 for rel, old_text in SUPERSEDED:
     path = root / rel

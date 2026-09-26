@@ -114,7 +114,7 @@ protected:
   float m_systemRefresh{0.0f};    // rate of the system's default mode (0: not known yet)
   bool m_highRefreshAvailable{false};
   bool m_highRefreshActive{false};
-  bool m_vrrAvailable{true};      // until an unpeg attempt fails
+  bool m_vrrAvailable{false};     // experimental, "kodi-vrr" switch; off after a failed unpeg
   float m_vrrTargetHz{0.0f};
   bool m_vblankClockUnreliable{false};
 

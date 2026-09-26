@@ -20,12 +20,26 @@ working on 4.03 (ItemzFlow + etaHEN 2.3b).
 
 | Works | Not yet |
 | --- | --- |
-| Estuary GUI at 1080p60 via OpenGL 4.6 on the PS5 GPU | HEVC Main10 / HDR in hardware (10-bit uses FFmpeg) |
+| Estuary GUI rendered natively at 3840x2160 (OpenGL 4.6 on the PS5 GPU) | HEVC Main10 / HDR in hardware (10-bit uses FFmpeg) |
+| Refresh-rate switching: 59.94 Hz and 119.88 Hz via Kodi's *Adjust display refresh rate*; 23.976/24 fps films play at 119.88 Hz with an even 5:1 cadence | 24/25/50 Hz output modes (not offered to titles); 25/50 fps content stays at 59.94 Hz |
+| Display vsync clock for *Sync playback to display* | VRR (experimental switch, needs a VideoOut function firmware 10.01 lacks) |
 | DualSense navigation (as keyboard events) | Internet access via curl (add-on repository, online streams) |
 | Audio (UI sounds, playback) | Python add-ons (Python is not built yet) |
 | Video playback: H.264 and HEVC Main in hardware (VideoDec2), everything else in FFmpeg | Binary add-ons (no `dlopen` in a title) |
 | SMB2/3 and NFS network sources, UPnP | Listing under the Media tab (the GL driver fails in that sandbox) |
 | Thumbnails, databases, settings | Network browsing of `smb://` (enter the server's IP) |
+
+### Recommended settings
+
+- *Settings → Player → Videos* (level Advanced or Expert): **Adjust display
+  refresh rate → On start/stop** and **Sync playback to display → On**.
+- PS5 *Screen and Video → Video Output*: 2160p, and **Enable 120 Hz Output**
+  on (Automatic) for the 119.88 Hz film mode. With the PS5's VRR setting on,
+  the system turns that mode into VRR pegged at 120 Hz; Kodi's vblank clock
+  checks itself and falls back to the system clock when vblanks stop matching
+  the output rate.
+- At 120 Hz the render budget is tight: the player debug overlay (L3) and a
+  long-open OSD can cost frames. Normal playback is unaffected.
 
 ## How it works
 
@@ -109,10 +123,11 @@ processes, so FTP cannot delete Kodi's data — these let Kodi do it:
 | --- | --- |
 | `kodi-reset` | wipe Kodi's data once, then start fresh |
 | `kodi-uninstall` | wipe Kodi's data and quit; the title folder can then be deleted over FTP |
-| `kodi-debug` | debug-level logging (slower; remove when done) |
+| `kodi-debug` | debug-level logging, plus frame timing, GL call and GL-driver profiles in klog (slower; remove when done) |
 | `kodi-swdecode` | software (FFmpeg) video decoding only, no hardware decoder |
 | `kodi-pbo` | video frame uploads through pixel buffer objects (for comparison) |
 | `kodi-tex2d` | video frames in 2D instead of rectangle textures (slow with this GL driver; for comparison) |
+| `kodi-vrr` | experimental: offer a 50 Hz VRR mode for 25/50 fps content (only works where the firmware exports `sceVideoOutVrrUnpegFromFixedRate`) |
 
 ### Adding network sources
 
@@ -180,13 +195,24 @@ Things that differ from a FreeBSD desktop and cost a crash each to find:
   patched system call); files the title creates cannot be deleted from outside.
 - **Media category.** Media apps get half the page tables and a stricter
   sandbox in which the GL driver fails (`EGL_BAD_ALLOC`), so Kodi is a Games title.
+- **Display.** The GL driver's render size is a build profile (2160p60 by
+  default, `PS5_SCANOUT_HEIGHT` in `scripts/18-build-ps5-opengl.sh`); on
+  another output the PS5 scales, and Kodi's log names the matching profile.
+  Output modes a title may request are presets: the system rate (59.94 Hz)
+  and 120 Hz (119.88 Hz, with the high-refresh flags in `param.json`).
+- **GL driver.** 2D R8/RG8 textures are tiled and uploaded pixel by pixel, so
+  video frames use rectangle textures (patch 0008); the driver reports wrong
+  buffer ages, so Kodi redraws the whole screen each frame.
 
 ## Roadmap
 
 1. Hardware decoding: HEVC Main10 and HDR, zero-copy into GL.
 2. Internet access (curl/TLS).
-3. A real DualSense joystick driver, on-screen keyboard, video sync.
-4. Python, binary add-ons, release packaging.
+3. GL driver: cheaper clears and draws at 4K (render headroom at 120 Hz),
+   runtime-selected render size, a third display buffer.
+4. 25/50 fps content: VRR or a 50 Hz output mode.
+5. A real DualSense joystick driver, on-screen keyboard.
+6. Python, binary add-ons.
 
 ## Contributing
 

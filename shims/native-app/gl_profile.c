@@ -2,14 +2,16 @@
  *  OpenGL call profiler (diagnostics).
  *
  *  The GL entry points Kodi's video renderer uses are wrapped at link time
- *  (lld --wrap, see scripts/30-deploy.sh). Each call is timed; every 5 seconds
- *  in which the wrapped calls took more than 50 ms in total, a table of call
- *  counts and times goes to klog, showing where render time goes.
+ *  (lld --wrap, see scripts/30-deploy.sh). With the kodi-debug switch, each
+ *  call is timed; every 5 seconds in which the wrapped calls took more than
+ *  50 ms in total, a table of call counts and times goes to klog, showing where
+ *  render time goes. Without the switch the wrappers only forward.
  *  SPDX-License-Identifier: GPL-2.0-or-later
  */
 #include <stdint.h>
 #include <stdio.h>
 #include <time.h>
+#include <unistd.h>
 
 int sceKernelDebugOutText(int channel, const char* text);
 
@@ -61,8 +63,18 @@ static uint64_t now_ns(void)
   return (uint64_t)ts.tv_sec * 1000000000ull + (uint64_t)ts.tv_nsec;
 }
 
+static int g_enabled = -1;
+static int enabled(void)
+{
+  if (g_enabled < 0)
+    g_enabled = access("/app0/kodi-debug", F_OK) == 0;
+  return g_enabled;
+}
+
 static void account(int which, uint64_t start)
 {
+  if (!enabled())
+    return;
   const uint64_t end = now_ns();
   const uint64_t took = end - start;
   g_stats[which].calls++;

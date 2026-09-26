@@ -23,6 +23,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <unistd.h>
 #include <mutex>
 
 using namespace KODI::WINDOWING::PS5;
@@ -152,6 +153,11 @@ void CWinSystemPS5::ApplySystemRefreshRate(float hz)
 void CWinSystemPS5::DetectOutputModes()
 {
   m_highRefreshAvailable = KODI::PLATFORM::PS5::IsHighRefreshSupported();
+  // Experimental 50 Hz VRR mode (needs sceVideoOutVrrUnpegFromFixedRate,
+  // which firmware 10.01 does not export): only with the kodi-vrr switch.
+  m_vrrAvailable = access("/app0/kodi-vrr", F_OK) == 0;
+  if (m_vrrAvailable)
+    CLog::Log(LOGINFO, "CWinSystemPS5: kodi-vrr: offering the experimental 50 Hz VRR mode");
   CLog::Log(LOGINFO, "CWinSystemPS5: 120 Hz output mode {}",
             m_highRefreshAvailable ? "available" : "not available");
   if (m_highRefreshAvailable)
