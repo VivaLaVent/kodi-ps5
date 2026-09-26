@@ -40,9 +40,10 @@ constexpr uint64_t kRefreshCode23_98 = 0x1;
 constexpr uint64_t kRefreshCode50 = 0x2;
 
 // Explicit refresh rate through the mode-structure API (ModeSetAny_ +
-// ConfigureOutputMode_): every field "any" except the refresh rate. Waits for
-// the output to settle. 0 on success.
-int SetOutputRefreshCode(uint64_t code);
+// ConfigureOutputMode_): every field "any" except the refresh-rate field,
+// which is set to `field` as the trial verified it (a rate code, or a mask of
+// codes). Waits for the output to settle. 0 on success.
+int SetOutputRefreshCode(uint64_t field);
 
 // Diagnostics: what ModeSetAny_ writes into a buffer of ours (the mode
 // structure's layout on this firmware), to the log.
@@ -53,7 +54,10 @@ void LogModeStructLayout();
 // from either initialiser), then try the given refresh codes with it. Every
 // accepted call is followed by a return to the system mode. Returns, per
 // code, whether the system then reported that rate.
-std::vector<bool> ExperimentExplicitRates(const std::vector<std::pair<uint64_t, float>>& rates);
+// Returns, per rate, the refresh-field value that produced that rate (0 if
+// none did). Both encodings are tried: the code itself and 1 << code.
+std::vector<uint64_t> ExperimentExplicitRates(
+    const std::vector<std::pair<uint64_t, float>>& rates);
 
 // The ConfigureOutputMode_ call shape used by SetOutputRefreshCode: options
 // initialiser 0 = none, 1 = ConfigureOptionsInitialize_, 2 =

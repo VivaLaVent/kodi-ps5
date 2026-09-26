@@ -113,6 +113,8 @@ protected:
   // (saved in special://home/ps5-output-modes.txt)
   bool m_rate23976Available{false};
   bool m_rate50Available{false};
+  uint64_t m_rate23976Field{0}; // refresh-field value the trial verified
+  uint64_t m_rate50Field{0};
 
   enum class ActiveOutput
   {

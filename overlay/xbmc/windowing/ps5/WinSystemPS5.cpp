@@ -189,13 +189,13 @@ void CWinSystemPS5::RunModeTrial()
   // One experiment run (kodi-probe-modes): the TV blanks briefly for every
   // mode change the system accepts. Only verified rates are saved.
   using namespace KODI::PLATFORM::PS5;
-  const std::vector<std::pair<uint64_t, float>> rates = {{kRefreshCode23_98, 23.976f},
-                                                         {kRefreshCode50, 50.0f}};
-  const std::vector<bool> usable = ExperimentExplicitRates(rates);
+  const std::vector<std::pair<uint64_t, float>> rates = {
+      {kRefreshCode23_98, 23.976f}, {kRefreshCode50, 50.0f}, {0xd, 119.88f}};
+  const std::vector<uint64_t> fields = ExperimentExplicitRates(rates);
   std::string verified;
   for (size_t i = 0; i < rates.size(); ++i)
-    if (usable[i])
-      verified += StringUtils::Format("{:.3f}\n", rates[i].second);
+    if (fields[i] && rates[i].second < 100.0f) // 119.88 Hz: the preset serves it
+      verified += StringUtils::Format("{:.3f} {:#x}\n", rates[i].second, fields[i]);
   if (!verified.empty())
   {
     const auto [initialiser, size] = GetModeCallShape();
@@ -210,6 +210,7 @@ void CWinSystemPS5::RunModeTrial()
 void CWinSystemPS5::LoadModeResults()
 {
   m_rate23976Available = m_rate50Available = false;
+  m_rate23976Field = m_rate50Field = 0;
   std::ifstream in(ModeResultsPath());
   std::string word;
   while (in >> word)
@@ -223,10 +224,22 @@ void CWinSystemPS5::LoadModeResults()
       continue;
     }
     const float hz = std::strtof(word.c_str(), nullptr);
+    std::string fieldText;
+    if (!(in >> fieldText))
+      break;
+    const uint64_t field = std::strtoull(fieldText.c_str(), nullptr, 0);
+    if (!field)
+      continue;
     if (std::abs(hz - 23.976f) < 0.01f)
+    {
       m_rate23976Available = true;
+      m_rate23976Field = field;
+    }
     else if (std::abs(hz - 50.0f) < 0.01f)
+    {
       m_rate50Available = true;
+      m_rate50Field = field;
+    }
   }
 }
 
@@ -264,10 +277,10 @@ float CWinSystemPS5::SwitchOutputRate(float requestedHz)
         rc = SetOutputMode(kOutputModeHighRefresh);
         break;
       case ActiveOutput::Rate23976:
-        rc = SetOutputRefreshCode(kRefreshCode23_98);
+        rc = SetOutputRefreshCode(m_rate23976Field);
         break;
       case ActiveOutput::Rate50:
-        rc = SetOutputRefreshCode(kRefreshCode50);
+        rc = SetOutputRefreshCode(m_rate50Field);
         break;
     }
   }

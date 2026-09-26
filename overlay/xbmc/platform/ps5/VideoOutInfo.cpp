@@ -283,14 +283,14 @@ std::pair<int, uint32_t> KODI::PLATFORM::PS5::GetModeCallShape()
   return {g_shapeInitialiser, g_shapeSize};
 }
 
-int KODI::PLATFORM::PS5::SetOutputRefreshCode(uint64_t code)
+int KODI::PLATFORM::PS5::SetOutputRefreshCode(uint64_t field)
 {
   const int32_t handle = ps5_opengl_video_out_handle();
   if (handle < 0)
     return -1;
   VideoOutMode mode;
   sceVideoOutModeSetAny_(&mode, sizeof(mode));
-  mode.refreshRate = code;
+  mode.refreshRate = field;
   const std::vector<uint8_t> options = BuildOptions(g_shapeInitialiser, g_shapeSize);
   const int rc = sceVideoOutConfigureOutputMode_(handle, 0, &mode,
                                                  options.empty() ? nullptr : options.data(),
@@ -326,10 +326,10 @@ bool BackToSystemMode(int32_t handle)
 }
 } // namespace
 
-std::vector<bool> KODI::PLATFORM::PS5::ExperimentExplicitRates(
+std::vector<uint64_t> KODI::PLATFORM::PS5::ExperimentExplicitRates(
     const std::vector<std::pair<uint64_t, float>>& rates)
 {
-  std::vector<bool> usable(rates.size(), false);
+  std::vector<uint64_t> usable(rates.size(), 0);
   const int32_t handle = ps5_opengl_video_out_handle();
   if (handle < 0)
     return usable;
@@ -386,12 +386,14 @@ std::vector<bool> KODI::PLATFORM::PS5::ExperimentExplicitRates(
   CLog::Log(LOGINFO, "PS5 mode experiment: using the call shape '{}'", accepted->name);
   SetModeCallShape(accepted->initialiser, accepted->optionsSize);
 
-  // 2. the refresh rates with that shape
-  for (size_t r = 0; r < rates.size(); ++r)
+  // 2. the refresh field: a rate code, or a mask of codes ("any" is all
+  //    bits set)? Controls at the current rate (59.94 Hz, code 3) first, then
+  //    each rate in both encodings.
+  auto attempt = [&](uint64_t field, float expectHz, const char* what) -> bool
   {
     VideoOutMode mode;
     sceVideoOutModeSetAny_(&mode, sizeof(mode));
-    mode.refreshRate = rates[r].first;
+    mode.refreshRate = field;
     const int rc = sceVideoOutConfigureOutputMode_(
         handle, 0, &mode, accepted->options.empty() ? nullptr : accepted->options.data(),
         sizeof(mode), accepted->optionsSize);
@@ -402,13 +404,25 @@ std::vector<bool> KODI::PLATFORM::PS5::ExperimentExplicitRates(
         sceVideoOutWaitVblank(handle);
       reported = QueryRefreshRate();
     }
-    usable[r] = rc == 0 && std::abs(reported - rates[r].second) < 0.1f;
-    CLog::Log(usable[r] ? LOGINFO : LOGWARNING,
-              "PS5 mode experiment: {:.3f} Hz (code {:#x}): {:#x}, system reports {:.3f} Hz -> {}",
-              rates[r].second, rates[r].first, static_cast<uint32_t>(rc), reported,
-              usable[r] ? "usable" : "not usable");
+    const bool ok = rc == 0 && std::abs(reported - expectHz) < 0.1f;
+    CLog::Log(ok ? LOGINFO : LOGWARNING,
+              "PS5 mode experiment: {:.3f} Hz as {} (field {:#x}): {:#x}, system reports "
+              "{:.3f} Hz -> {}",
+              expectHz, what, field, static_cast<uint32_t>(rc), reported,
+              ok ? "usable" : "not usable");
     if (rc == 0)
       BackToSystemMode(handle);
+    return ok;
+  };
+  attempt(0x3, 59.94f, "value (control)");
+  attempt(1ull << 3, 59.94f, "mask (control)");
+  for (size_t r = 0; r < rates.size(); ++r)
+  {
+    const uint64_t code = rates[r].first;
+    if (attempt(code, rates[r].second, "value"))
+      usable[r] = code;
+    else if (attempt(1ull << code, rates[r].second, "mask"))
+      usable[r] = 1ull << code;
   }
   return usable;
 }
