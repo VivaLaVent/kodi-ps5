@@ -171,6 +171,7 @@ float CWinSystemPS5::SwitchOutputRate(float requestedHz)
   // Like a mode switch elsewhere: display resources (renderer, vsync clock)
   // see a lost/reset display around it, so the clock restarts at the new rate.
   OnLostDevice();
+  m_vblankClockUnreliable = false; // re-evaluated for the new mode
 
   int rc = 0;
   if (vrrActive && wantHigh && !wantVrr)

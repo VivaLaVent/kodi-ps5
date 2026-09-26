@@ -199,9 +199,26 @@ int KODI::PLATFORM::PS5::VrrUnpegFromFixedRate()
   {
     // the GL driver loads its video out functions the same way
     void* module = dlopen("libSceVideoOut.sprx", RTLD_NOW | RTLD_LOCAL);
-    void* sym = module ? dlsym(module, "sceVideoOutVrrUnpegFromFixedRate") : nullptr;
-    CLog::Log(sym ? LOGINFO : LOGWARNING, "PS5 video out: VRR unpeg function {}",
-              sym ? "found" : "not available");
+    if (!module)
+    {
+      const char* err = dlerror();
+      CLog::Log(LOGWARNING, "PS5 video out: dlopen(libSceVideoOut.sprx) failed: {}",
+                err ? err : "no error text");
+      return nullptr;
+    }
+    void* sym = dlsym(module, "sceVideoOutVrrUnpegFromFixedRate");
+    if (!sym)
+    {
+      const char* err = dlerror();
+      // control: a function the GL driver resolves the same way
+      void* control = dlsym(module, "sceVideoOutWaitVblank");
+      CLog::Log(LOGWARNING,
+                "PS5 video out: sceVideoOutVrrUnpegFromFixedRate not exported ({}); control "
+                "symbol sceVideoOutWaitVblank {}",
+                err ? err : "no error text", control ? "found" : "also missing");
+      return nullptr;
+    }
+    CLog::Log(LOGINFO, "PS5 video out: VRR unpeg function found");
     return reinterpret_cast<UnpegFn>(sym);
   }();
   if (!unpeg)

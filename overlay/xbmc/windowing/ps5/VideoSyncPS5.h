@@ -35,6 +35,8 @@ public:
   void OnResetDisplay() override;
 
 private:
+  float OutputRate() const;
+
   CWinSystemBase* m_winSystem;
   uint64_t m_lastCount = 0;
   bool m_abort = false;

@@ -37,11 +37,19 @@ bool CVideoSyncPS5::Setup()
   m_abort = false;
   // Under VRR the output follows our presentation: there is no fixed refresh
   // to lock to, so let Kodi use its system clock (return false).
-  if (auto* ps5 = dynamic_cast<KODI::WINDOWING::PS5::CWinSystemPS5*>(m_winSystem);
-      ps5 && ps5->VrrTargetRate() > 0.0f)
+  if (auto* ps5 = dynamic_cast<KODI::WINDOWING::PS5::CWinSystemPS5*>(m_winSystem); ps5)
   {
-    CLog::Log(LOGINFO, "CVideoSyncPS5: VRR active, using the system clock");
-    return false;
+    if (ps5->VrrTargetRate() > 0.0f)
+    {
+      CLog::Log(LOGINFO, "CVideoSyncPS5: VRR active, using the system clock");
+      return false;
+    }
+    if (ps5->IsVblankClockUnreliable())
+    {
+      CLog::Log(LOGINFO, "CVideoSyncPS5: vblanks unreliable in this output mode, using the "
+                         "system clock");
+      return false;
+    }
   }
   uint64_t count = 0, when = 0;
   if (!QueryVblank(count, when))
@@ -59,15 +67,18 @@ bool CVideoSyncPS5::Setup()
 void CVideoSyncPS5::Run(CEvent& stopEvent)
 {
   unsigned polls = 0;
+  // self-check: do vblanks arrive at the rate the output claims?
+  uint64_t checkCount = m_lastCount;
+  auto checkStart = std::chrono::steady_clock::now();
+  int badWindows = 0;
   while (!stopEvent.Signaled() && !m_abort)
   {
     // safety net: a changed output rate ends this run, so the reference
     // clock restarts with the new rate (Kodi reads it only at Setup)
-    if (++polls % 100 == 0 && m_winSystem &&
-        std::abs(m_winSystem->GetGfxContext().GetFPS() - m_fps) > 0.01f)
+    if (++polls % 100 == 0 && std::abs(OutputRate() - m_fps) > 0.01f)
     {
       CLog::Log(LOGINFO, "CVideoSyncPS5: display rate changed ({:.3f} -> {:.3f} Hz), restarting",
-                m_fps, m_winSystem->GetGfxContext().GetFPS());
+                m_fps, OutputRate());
       break;
     }
     std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -90,6 +101,27 @@ void CVideoSyncPS5::Run(CEvent& stopEvent)
 
     m_refClock->UpdateClock(static_cast<int>(count - m_lastCount), static_cast<uint64_t>(hostTime));
     m_lastCount = count;
+
+    const auto nowSteady = std::chrono::steady_clock::now();
+    const double window = std::chrono::duration<double>(nowSteady - checkStart).count();
+    if (window >= 2.0)
+    {
+      const double measured = static_cast<double>(count - checkCount) / window;
+      const double expected = static_cast<double>(m_fps);
+      badWindows = std::abs(measured / expected - 1.0) > 0.02 ? badWindows + 1 : 0;
+      checkCount = count;
+      checkStart = nowSteady;
+      if (badWindows >= 2)
+      {
+        CLog::Log(LOGWARNING,
+                  "CVideoSyncPS5: vblanks arrive at {:.2f}/s, not {:.3f} Hz (VRR?): using the "
+                  "system clock for this output mode",
+                  measured, m_fps);
+        if (auto* ps5 = dynamic_cast<KODI::WINDOWING::PS5::CWinSystemPS5*>(m_winSystem))
+          ps5->SetVblankClockUnreliable();
+        break;
+      }
+    }
   }
 }
 
@@ -104,15 +136,24 @@ void CVideoSyncPS5::OnResetDisplay()
   m_abort = true;
 }
 
+float CVideoSyncPS5::OutputRate() const
+{
+  if (auto* ps5 = dynamic_cast<KODI::WINDOWING::PS5::CWinSystemPS5*>(m_winSystem))
+    return ps5->OutputRefreshRate();
+  return m_winSystem ? m_winSystem->GetGfxContext().GetFPS() : 60.0f;
+}
+
 float CVideoSyncPS5::GetFps()
 {
-  m_fps = m_winSystem ? m_winSystem->GetGfxContext().GetFPS() : 60.0f;
+  // the real output rate: Kodi's mode list can differ (a 50 Hz VRR mode that
+  // fell back to 119.88 Hz counted 120 vblanks/s as 50: video ran 2.4x fast)
+  m_fps = OutputRate();
   return m_fps;
 }
 
 void CVideoSyncPS5::RefreshChanged()
 {
   // the output mode changed (e.g. 59.94 <-> 119.88 Hz): restart the clock
-  if (m_winSystem && m_fps != m_winSystem->GetGfxContext().GetFPS())
+  if (std::abs(OutputRate() - m_fps) > 0.01f)
     m_abort = true;
 }

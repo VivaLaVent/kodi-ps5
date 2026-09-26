@@ -73,6 +73,16 @@ public:
   // presentation at this rate (0: fixed-rate output, no pacing).
   float VrrTargetRate() const { return m_vrrTargetHz; }
 
+  // The output's real refresh rate (Kodi's mode list may say otherwise, e.g.
+  // when a requested mode could not be set up exactly).
+  float OutputRefreshRate() const { return m_fRefreshRate; }
+
+  // The vblank clock found vblanks arriving at a rate other than the output's
+  // (e.g. the system turned the output into VRR): don't use it again until
+  // the next output mode change.
+  void SetVblankClockUnreliable() { m_vblankClockUnreliable = true; }
+  bool IsVblankClockUnreliable() const { return m_vblankClockUnreliable; }
+
   bool CanDoWindowed() override { return false; }
   bool SupportsScreenMove() override { return false; }
   bool HasCursor() override { return false; }
@@ -106,6 +116,7 @@ protected:
   bool m_highRefreshActive{false};
   bool m_vrrAvailable{true};      // until an unpeg attempt fails
   float m_vrrTargetHz{0.0f};
+  bool m_vblankClockUnreliable{false};
 
   static constexpr float kVrrModeHz = 50.0f; // 25/50 fps content (VRR range 48-120 Hz)
 
