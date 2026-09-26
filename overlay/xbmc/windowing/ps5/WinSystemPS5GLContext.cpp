@@ -226,6 +226,19 @@ void CWinSystemPS5GLContext::PresentRender(bool rendered, bool videoLayer)
 
   if (rendered || videoLayer)
   {
+    // Under VRR the display refreshes when we present: pace presentation at
+    // the target rate so e.g. 25 fps video is shown at an even 50 Hz.
+    if (const float vrrHz = VrrTargetRate(); vrrHz > 0.0f)
+    {
+      const auto period = std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+          std::chrono::duration<double>(1.0 / vrrHz));
+      const auto now = std::chrono::steady_clock::now();
+      if (m_nextVrrPresent < now - period || m_nextVrrPresent > now + 2 * period)
+        m_nextVrrPresent = now; // (re)start the cadence
+      std::this_thread::sleep_until(m_nextVrrPresent);
+      m_nextVrrPresent += period;
+    }
+
     // eglSwapBuffers is our only vertical-sync source.
     const auto before = std::chrono::steady_clock::now();
     if (!m_eglContext.TrySwapBuffers())

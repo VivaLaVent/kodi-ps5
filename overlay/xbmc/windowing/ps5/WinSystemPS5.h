@@ -69,6 +69,10 @@ public:
   // Back to the system's own mode (on exit).
   void RestoreOutputMode();
 
+  // VRR: the output follows our presentation; the window system paces
+  // presentation at this rate (0: fixed-rate output, no pacing).
+  float VrrTargetRate() const { return m_vrrTargetHz; }
+
   bool CanDoWindowed() override { return false; }
   bool SupportsScreenMove() override { return false; }
   bool HasCursor() override { return false; }
@@ -100,6 +104,10 @@ protected:
   float m_systemRefresh{0.0f};    // rate of the system's default mode (0: not known yet)
   bool m_highRefreshAvailable{false};
   bool m_highRefreshActive{false};
+  bool m_vrrAvailable{true};      // until an unpeg attempt fails
+  float m_vrrTargetHz{0.0f};
+
+  static constexpr float kVrrModeHz = 50.0f; // 25/50 fps content (VRR range 48-120 Hz)
 
   CCriticalSection m_resourceSection;
   std::vector<IDispResource*> m_resources;

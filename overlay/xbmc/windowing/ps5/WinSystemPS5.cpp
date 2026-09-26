@@ -80,6 +80,17 @@ void CWinSystemPS5::UpdateResolutions()
                                        m_outputHeight, highHz);
     GetGfxContext().ResetOverscan(high);
     CDisplaySettings::GetInstance().AddResolutionInfo(high);
+
+    if (m_vrrAvailable)
+    {
+      // experimental: 120 Hz preset + VRR, presentation paced at 50 Hz
+      RESOLUTION_INFO vrr;
+      UpdateDesktopResolution(vrr, "PS5", m_outputWidth, m_outputHeight, kVrrModeHz, 0);
+      vrr.strMode = StringUtils::Format("{}x{} @ {:.2f}Hz (PS5 VRR)", m_outputWidth,
+                                        m_outputHeight, kVrrModeHz);
+      GetGfxContext().ResetOverscan(vrr);
+      CDisplaySettings::GetInstance().AddResolutionInfo(vrr);
+    }
   }
   CDisplaySettings::GetInstance().ApplyCalibrations();
 
@@ -150,14 +161,22 @@ void CWinSystemPS5::DetectOutputModes()
 float CWinSystemPS5::SwitchOutputRate(float requestedHz)
 {
   using namespace KODI::PLATFORM::PS5;
-  const bool wantHigh = m_highRefreshAvailable && requestedHz > 100.0f;
-  if (wantHigh == m_highRefreshActive)
+  const bool wantVrr = m_highRefreshAvailable && m_vrrAvailable &&
+                       std::abs(requestedHz - kVrrModeHz) < 0.5f;
+  const bool wantHigh = m_highRefreshAvailable && (wantVrr || requestedHz > 100.0f);
+  const bool vrrActive = m_vrrTargetHz > 0.0f;
+  if (wantHigh == m_highRefreshActive && wantVrr == vrrActive)
     return m_fRefreshRate;
 
   // Like a mode switch elsewhere: display resources (renderer, vsync clock)
   // see a lost/reset display around it, so the clock restarts at the new rate.
   OnLostDevice();
-  const int rc = SetOutputMode(wantHigh ? kOutputModeHighRefresh : kOutputModeDefault);
+
+  int rc = 0;
+  if (vrrActive && wantHigh && !wantVrr)
+    rc = SetOutputMode(kOutputModeDefault); // leave VRR: re-peg via the default mode
+  if (rc == 0 && (wantHigh != m_highRefreshActive || (vrrActive && !wantVrr)))
+    rc = SetOutputMode(wantHigh ? kOutputModeHighRefresh : kOutputModeDefault);
   if (rc != 0)
   {
     CLog::Log(LOGWARNING, "CWinSystemPS5: switching to {} failed ({:#x}); staying at {:.3f} Hz",
@@ -169,18 +188,40 @@ float CWinSystemPS5::SwitchOutputRate(float requestedHz)
     return m_fRefreshRate;
   }
   m_highRefreshActive = wantHigh;
-  float hz = QueryRefreshRate();
+  m_vrrTargetHz = 0.0f;
+
+  float hz = 0.0f;
+  if (wantVrr)
+  {
+    const int vrr = VrrUnpegFromFixedRate();
+    if (vrr == 0)
+    {
+      m_vrrTargetHz = kVrrModeHz;
+      hz = kVrrModeHz;
+      CLog::Log(LOGINFO, "CWinSystemPS5: VRR active, presenting at {:.3f} Hz", hz);
+    }
+    else
+    {
+      CLog::Log(LOGWARNING, "CWinSystemPS5: VRR unpeg failed ({:#x}); staying at 120 Hz",
+                static_cast<uint32_t>(vrr));
+      m_vrrAvailable = false; // not offered again this session
+    }
+  }
   if (hz <= 0.0f)
-    hz = wantHigh ? requestedHz : (m_systemRefresh > 0.0f ? m_systemRefresh : 60.0f);
+    hz = QueryRefreshRate();
+  if (hz <= 0.0f)
+    hz = wantHigh ? 119.88f : (m_systemRefresh > 0.0f ? m_systemRefresh : 60.0f);
   m_fRefreshRate = hz;
   m_outputRefresh = hz;
-  CLog::Log(LOGINFO, "CWinSystemPS5: output switched to {:.3f} Hz", hz);
+  CLog::Log(LOGINFO, "CWinSystemPS5: output switched to {:.3f} Hz{}", hz,
+            m_vrrTargetHz > 0.0f ? " (VRR)" : "");
   OnResetDevice();
   return hz;
 }
 
 void CWinSystemPS5::RestoreOutputMode()
 {
+  m_vrrTargetHz = 0.0f;
   if (!m_highRefreshActive)
     return;
   const int rc = KODI::PLATFORM::PS5::SetOutputMode(KODI::PLATFORM::PS5::kOutputModeDefault);

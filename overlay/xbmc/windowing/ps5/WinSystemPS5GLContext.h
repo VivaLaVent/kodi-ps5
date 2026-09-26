@@ -76,6 +76,7 @@ private:
   double m_swapMaxMs = 0;
   double m_swapGapMaxMs = 0;
   bool m_videoOutLogged = false;
+  std::chrono::steady_clock::time_point m_nextVrrPresent{};
 
   bool CreateContext();
   void QueryOutputGeometry();

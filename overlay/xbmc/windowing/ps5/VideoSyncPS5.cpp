@@ -8,6 +8,8 @@
 
 #include "VideoSyncPS5.h"
 
+#include "WinSystemPS5.h"
+
 #include "ServiceBroker.h"
 #include "cores/VideoPlayer/VideoReferenceClock.h"
 #include "platform/ps5/VideoOutInfo.h"
@@ -33,6 +35,14 @@ CVideoSyncPS5::CVideoSyncPS5(CVideoReferenceClock* clock)
 bool CVideoSyncPS5::Setup()
 {
   m_abort = false;
+  // Under VRR the output follows our presentation: there is no fixed refresh
+  // to lock to, so let Kodi use its system clock (return false).
+  if (auto* ps5 = dynamic_cast<KODI::WINDOWING::PS5::CWinSystemPS5*>(m_winSystem);
+      ps5 && ps5->VrrTargetRate() > 0.0f)
+  {
+    CLog::Log(LOGINFO, "CVideoSyncPS5: VRR active, using the system clock");
+    return false;
+  }
   uint64_t count = 0, when = 0;
   if (!QueryVblank(count, when))
   {

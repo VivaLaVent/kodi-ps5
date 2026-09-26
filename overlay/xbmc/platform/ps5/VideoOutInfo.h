@@ -38,6 +38,12 @@ bool IsHighRefreshSupported();
 // Switch the output mode; waits for the output to settle. 0 on success.
 int SetOutputMode(uint32_t mode);
 
+// VRR: after switching to the 120 Hz preset, release the output from its
+// fixed rate so the display follows the title's presentation (as ProsperoLight
+// does for 90 fps). Looked up at runtime: the SDK's link stub lacks it.
+// 0 on success; negative if the function is unavailable.
+int VrrUnpegFromFixedRate();
+
 // Vblank counter and the process time (microseconds) of the latest vblank.
 bool QueryVblank(uint64_t& count, uint64_t& processTimeUs);
 } // namespace KODI::PLATFORM::PS5

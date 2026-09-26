@@ -11,6 +11,7 @@
 #include "utils/log.h"
 
 #include <cstddef>
+#include <dlfcn.h>
 #include <cstdint>
 #include <string>
 
@@ -186,4 +187,24 @@ int KODI::PLATFORM::PS5::SetOutputMode(uint32_t mode)
     if (const int wait = sceVideoOutWaitVblank(handle); wait != 0)
       return wait;
   return 0;
+}
+
+int KODI::PLATFORM::PS5::VrrUnpegFromFixedRate()
+{
+  const int32_t handle = ps5_opengl_video_out_handle();
+  if (handle < 0)
+    return -1;
+  using UnpegFn = int (*)(int32_t);
+  static UnpegFn unpeg = []() -> UnpegFn
+  {
+    // the GL driver loads its video out functions the same way
+    void* module = dlopen("libSceVideoOut.sprx", RTLD_NOW | RTLD_LOCAL);
+    void* sym = module ? dlsym(module, "sceVideoOutVrrUnpegFromFixedRate") : nullptr;
+    CLog::Log(sym ? LOGINFO : LOGWARNING, "PS5 video out: VRR unpeg function {}",
+              sym ? "found" : "not available");
+    return reinterpret_cast<UnpegFn>(sym);
+  }();
+  if (!unpeg)
+    return -2;
+  return unpeg(handle);
 }
