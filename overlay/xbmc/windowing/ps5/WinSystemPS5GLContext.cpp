@@ -231,7 +231,7 @@ void CWinSystemPS5GLContext::PresentRender(bool rendered, bool videoLayer)
     if (const float vrrHz = VrrTargetRate(); vrrHz > 0.0f)
     {
       const auto period = std::chrono::duration_cast<std::chrono::steady_clock::duration>(
-          std::chrono::duration<double>(1.0 / vrrHz));
+          std::chrono::duration<double>(1.0 / static_cast<double>(vrrHz)));
       const auto now = std::chrono::steady_clock::now();
       if (m_nextVrrPresent < now - period || m_nextVrrPresent > now + 2 * period)
         m_nextVrrPresent = now; // (re)start the cadence

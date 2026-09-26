@@ -36,6 +36,14 @@ LLD="$PS5_PAYLOAD_SDK/bin/prospero-lld"
 AR="$PS5_PAYLOAD_SDK/bin/prospero-ar"
 
 [ -f "$BUILD/kodi.bin" ] || { echo "!! $BUILD/kodi.bin not found: build Kodi first"; exit 1; }
+# A failed Kodi build leaves new objects but an old kodi.bin (and old module
+# archives): packaging would silently ship the previous build. Refuse.
+STALE=$(find "$BUILD" -name '*.o' -newer "$BUILD/kodi.bin" -print -quit 2>/dev/null)
+if [ -n "$STALE" ]; then
+  echo "!! $BUILD/kodi.bin is older than compiled objects (e.g. ${STALE#$BUILD/}):"
+  echo "!! the Kodi build did not finish. Check: grep -n 'FAILED:\| error:' ~/kodi-build.log"
+  exit 1
+fi
 [ -f "$APP_TEMPLATE/Makefile" ] && [ -d "$APP_TEMPLATE/.deps/native" ] || {
   echo "!! app template not found at $APP_TEMPLATE (build ps5-opengl's imgui-demo first: make -C $WORK/ps5-opengl imgui-demo)"; exit 1; }
 
