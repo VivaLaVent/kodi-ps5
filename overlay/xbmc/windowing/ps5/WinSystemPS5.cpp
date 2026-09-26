@@ -24,6 +24,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
 #include <fstream>
 #include <utility>
@@ -191,7 +192,69 @@ void CWinSystemPS5::RunModeTrial()
   using namespace KODI::PLATFORM::PS5;
   const std::vector<std::pair<uint64_t, float>> rates = {
       {kRefreshCode23_98, 23.976f}, {kRefreshCode50, 50.0f}, {0xd, 119.88f}};
-  const std::vector<uint64_t> fields = ExperimentExplicitRates(rates);
+
+  // 1. call shape for the explicit API (options structure)
+  std::vector<uint64_t> fields = ExperimentExplicitRates(rates);
+
+  // 2. the current mode as template. Reading it uses an undocumented call
+  //    shape that can crash: a marker file records the variant in progress,
+  //    and after a crash the next start skips it and tries the next one.
+  const std::string marker =
+      CSpecialProtocol::TranslatePath("special://home/ps5-probe-in-progress.txt");
+  const std::string crashedList =
+      CSpecialProtocol::TranslatePath("special://home/ps5-probe-crashed.txt");
+  {
+    // a marker left behind means that variant crashed: remember it for good
+    std::ifstream in(marker);
+    int crashed = 0;
+    if (in >> crashed && crashed > 0)
+    {
+      CLog::Log(LOGWARNING,
+                "CWinSystemPS5: the previous trial crashed reading the current mode with variant "
+                "{}; it is skipped from now on",
+                crashed);
+      std::ofstream(crashedList, std::ios::app) << crashed << "\n";
+    }
+    in.close();
+    std::remove(marker.c_str());
+  }
+  std::vector<int> skip;
+  {
+    std::ifstream in(crashedList);
+    for (int v = 0; in >> v;)
+      skip.push_back(v);
+  }
+  int templateVariant = 0;
+  for (int variant = 1; variant <= 2 && !templateVariant; ++variant)
+  {
+    if (std::find(skip.begin(), skip.end(), variant) != skip.end())
+      continue;
+    {
+      std::ofstream out(marker, std::ios::trunc);
+      out << variant << "\n";
+    }
+    uint8_t probe[256];
+    const int rc = ReadCurrentMode(variant, probe);
+    std::remove(marker.c_str()); // survived the call
+    if (rc != 0)
+    {
+      CLog::Log(LOGWARNING, "CWinSystemPS5: reading the current mode, variant {}: {:#x}",
+                variant, static_cast<uint32_t>(rc));
+      continue;
+    }
+    const std::vector<uint64_t> templated = ExperimentTemplateRates(variant, rates);
+    for (size_t i = 0; i < fields.size(); ++i)
+      if (!fields[i] && templated[i])
+      {
+        fields[i] = templated[i];
+        templateVariant = variant;
+      }
+    if (!templateVariant)
+      break; // the read worked; the rates are simply refused
+  }
+  std::remove(marker.c_str());
+  SetModeTemplateVariant(templateVariant);
+
   std::string verified;
   for (size_t i = 0; i < rates.size(); ++i)
     if (fields[i] && rates[i].second < 100.0f) // 119.88 Hz: the preset serves it
@@ -199,7 +262,9 @@ void CWinSystemPS5::RunModeTrial()
   if (!verified.empty())
   {
     const auto [initialiser, size] = GetModeCallShape();
-    verified = StringUtils::Format("shape {} {}\n", initialiser, size) + verified;
+    verified = StringUtils::Format("shape {} {}\ntemplate {}\n", initialiser, size,
+                                   templateVariant) +
+               verified;
   }
   std::ofstream out(ModeResultsPath(), std::ios::trunc);
   out << verified;
@@ -215,6 +280,13 @@ void CWinSystemPS5::LoadModeResults()
   std::string word;
   while (in >> word)
   {
+    if (word == "template")
+    {
+      int variant = 0;
+      if (in >> variant)
+        KODI::PLATFORM::PS5::SetModeTemplateVariant(variant);
+      continue;
+    }
     if (word == "shape")
     {
       int initialiser = 0;

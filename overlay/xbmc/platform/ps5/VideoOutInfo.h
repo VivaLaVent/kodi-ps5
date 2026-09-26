@@ -66,6 +66,23 @@ std::vector<uint64_t> ExperimentExplicitRates(
 void SetModeCallShape(int initialiser, uint32_t size);
 std::pair<int, uint32_t> GetModeCallShape();
 
+// Reading the current output mode (sceVideoOutGetCurrentOutputMode_, shape
+// undocumented): variant 1 = (handle, mode, size), variant 2 = (handle, mode,
+// options, modeSize, optionsSize). `out` must hold 256 bytes. Returns the
+// call's result. A wrong variant can crash: the trial guards against that.
+int ReadCurrentMode(int variant, uint8_t* out);
+
+// When set (variant 1/2), SetOutputRefreshCode starts from the current mode
+// instead of an all-"any" one and changes only its refresh field.
+void SetModeTemplateVariant(int variant);
+int GetModeTemplateVariant();
+
+// Experiment with a mode read by `variant`: log it, re-apply it unchanged
+// (control), then only the refresh field per rate, in the encoding the read
+// mode shows. Returns per rate the field value that produced it (0: none).
+std::vector<uint64_t> ExperimentTemplateRates(
+    int variant, const std::vector<std::pair<uint64_t, float>>& rates);
+
 // Whether the system accepts the 120 Hz preset for this title.
 bool IsHighRefreshSupported();
 

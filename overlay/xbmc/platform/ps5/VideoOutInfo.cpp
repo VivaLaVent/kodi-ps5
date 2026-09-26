@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <cstring>
 #include <cstdint>
 #include <string>
 
@@ -56,6 +57,8 @@ int sceVideoOutConfigureOutputMode_(int32_t handle, uint32_t reserved, const voi
 // zeroed buffer with a size argument; a pointer-only function ignores it)
 void sceVideoOutConfigureOptionsInitialize_(void* options, uint32_t size);
 void sceVideoOutInitializeOutputOptions(void* options, uint32_t size);
+// shape undocumented; called through the two candidate prototypes
+int sceVideoOutGetCurrentOutputMode_(int32_t handle, void* mode, uint32_t size);
 }
 
 namespace
@@ -272,6 +275,38 @@ std::vector<uint8_t> BuildOptions(int initialiser, uint32_t size)
 }
 } // namespace
 
+namespace
+{
+int g_templateVariant = 0;
+}
+
+int KODI::PLATFORM::PS5::ReadCurrentMode(int variant, uint8_t* out)
+{
+  const int32_t handle = ps5_opengl_video_out_handle();
+  if (handle < 0)
+    return -1;
+  std::memset(out, 0, 256);
+  if (variant == 1)
+    return sceVideoOutGetCurrentOutputMode_(handle, out, 32);
+  using VariantB = int (*)(int32_t, void*, void*, uint32_t, uint32_t);
+  static uint8_t options[256];
+  std::memset(options, 0, sizeof(options));
+  // deliberate: the same symbol called through the second candidate prototype
+  const auto variantB = reinterpret_cast<VariantB>(
+      reinterpret_cast<void*>(&sceVideoOutGetCurrentOutputMode_));
+  return variantB(handle, out, options, 32, 16);
+}
+
+void KODI::PLATFORM::PS5::SetModeTemplateVariant(int variant)
+{
+  g_templateVariant = variant;
+}
+
+int KODI::PLATFORM::PS5::GetModeTemplateVariant()
+{
+  return g_templateVariant;
+}
+
 void KODI::PLATFORM::PS5::SetModeCallShape(int initialiser, uint32_t size)
 {
   g_shapeInitialiser = initialiser;
@@ -290,6 +325,13 @@ int KODI::PLATFORM::PS5::SetOutputRefreshCode(uint64_t field)
     return -1;
   VideoOutMode mode;
   sceVideoOutModeSetAny_(&mode, sizeof(mode));
+  if (g_templateVariant)
+  {
+    // start from the current mode, as the trial verified
+    uint8_t current[256];
+    if (ReadCurrentMode(g_templateVariant, current) == 0)
+      std::memcpy(&mode, current, sizeof(mode));
+  }
   mode.refreshRate = field;
   const std::vector<uint8_t> options = BuildOptions(g_shapeInitialiser, g_shapeSize);
   const int rc = sceVideoOutConfigureOutputMode_(handle, 0, &mode,
@@ -425,4 +467,72 @@ std::vector<uint64_t> KODI::PLATFORM::PS5::ExperimentExplicitRates(
       usable[r] = 1ull << code;
   }
   return usable;
+}
+
+std::vector<uint64_t> KODI::PLATFORM::PS5::ExperimentTemplateRates(
+    int variant, const std::vector<std::pair<uint64_t, float>>& rates)
+{
+  std::vector<uint64_t> fields(rates.size(), 0);
+  const int32_t handle = ps5_opengl_video_out_handle();
+  if (handle < 0)
+    return fields;
+  uint8_t current[256];
+  const int rc = ReadCurrentMode(variant, current);
+  size_t written = 0;
+  for (size_t i = 0; i < sizeof(current); ++i)
+    if (current[i])
+      written = i + 1;
+  CLog::Log(rc == 0 ? LOGINFO : LOGWARNING,
+            "PS5 mode template: GetCurrentOutputMode_ variant {}: {:#x}, {} bytes: {}", variant,
+            static_cast<uint32_t>(rc), written, Hex(current, std::max<size_t>(written, 32)));
+  if (rc != 0)
+    return fields;
+
+  VideoOutMode base;
+  std::memcpy(&base, current, sizeof(base));
+  CLog::Log(LOGINFO,
+            "PS5 mode template: size {} encoding {:#x} range {:#x} colorimetry {:#x} depth {:#x} "
+            "refresh {:#x} resolution {:#x}",
+            base.size, base.encoding, base.range, base.colorimetry, base.depth, base.refreshRate,
+            base.resolution);
+  // the read mode shows the refresh field's encoding: 0x3 (value) or 0x8 (mask)
+  const bool mask = base.refreshRate == (1ull << 3);
+
+  const std::vector<uint8_t> options = BuildOptions(g_shapeInitialiser, g_shapeSize);
+  auto apply = [&](const VideoOutMode& mode) {
+    return sceVideoOutConfigureOutputMode_(handle, 0, &mode,
+                                           options.empty() ? nullptr : options.data(),
+                                           sizeof(mode), options.empty() ? 0 : g_shapeSize);
+  };
+
+  const int control = apply(base);
+  CLog::Log(control == 0 ? LOGINFO : LOGWARNING,
+            "PS5 mode template: control (current mode unchanged): {:#x}",
+            static_cast<uint32_t>(control));
+  if (control == 0)
+    BackToSystemMode(handle);
+
+  for (size_t r = 0; r < rates.size(); ++r)
+  {
+    VideoOutMode mode = base;
+    mode.refreshRate = mask ? (1ull << rates[r].first) : rates[r].first;
+    const int result = apply(mode);
+    float reported = 0.0f;
+    if (result == 0)
+    {
+      for (int i = 0; i < 2; ++i)
+        sceVideoOutWaitVblank(handle);
+      reported = QueryRefreshRate();
+    }
+    const bool ok = result == 0 && std::abs(reported - rates[r].second) < 0.1f;
+    CLog::Log(ok ? LOGINFO : LOGWARNING,
+              "PS5 mode template: {:.3f} Hz (field {:#x}): {:#x}, system reports {:.3f} Hz -> {}",
+              rates[r].second, mode.refreshRate, static_cast<uint32_t>(result), reported,
+              ok ? "usable" : "not usable");
+    if (result == 0)
+      BackToSystemMode(handle);
+    if (ok)
+      fields[r] = mode.refreshRate;
+  }
+  return fields;
 }
