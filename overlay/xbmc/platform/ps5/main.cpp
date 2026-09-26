@@ -358,17 +358,17 @@ int main(int argc, char* argv[])
   //                   folder can be deleted over FTP
   if (SwitchPresent("/app0/kodi-uninstall"))
   {
-    const int n = RemoveTree("/app0/kodi");
+    const int n = RemoveTree("/app0/kodi") + RemoveTree("/download0/.kodi");
     unlink("/app0/kodi-uninstall");
-    Klogf("[kodi-ps5] kodi-uninstall found: removed %d files and folders of /app0/kodi, "
+    Klogf("[kodi-ps5] kodi-uninstall found: removed %d files and folders of Kodi's data, "
           "quitting\n", n);
     _exit(0);
   }
   if (SwitchPresent("/app0/kodi-reset"))
   {
-    const int n = RemoveTree("/app0/kodi");
+    const int n = RemoveTree("/app0/kodi") + RemoveTree("/download0/.kodi");
     unlink("/app0/kodi-reset");
-    Klogf("[kodi-ps5] kodi-reset found: removed %d files and folders of /app0/kodi\n", n);
+    Klogf("[kodi-ps5] kodi-reset found: removed %d files and folders of Kodi's data\n", n);
   }
 
   if (!std::getenv("HOME"))
@@ -378,9 +378,15 @@ int main(int argc, char* argv[])
     //  /app0/kodi  the title folder itself = /data/homebrew/<TITLE_ID>/kodi on
     //              disk (reachable over FTP), if the loader mounts it writable
     //  /download0  the title's official writable data area (a disk image)
+    //  kodi-home-download0 (switch) puts /download0 first: Kodi's data then
+    //  lives outside the title folder (not reachable over FTP).
     static const char* const candidates[] = {"/data/kodi", "/app0/kodi", "/download0"};
+    static const char* const download0First[] = {"/download0", "/data/kodi", "/app0/kodi"};
+    const bool preferDownload0 = SwitchPresent("/app0/kodi-home-download0");
+    if (preferDownload0)
+      Klog("[kodi-ps5] switch kodi-home-download0 found: Kodi's data goes to /download0\n");
     const char* chosen = nullptr;
-    for (const char* candidate : candidates)
+    for (const char* candidate : preferDownload0 ? download0First : candidates)
       if (ProbeHome(candidate))
       {
         chosen = candidate;
@@ -393,6 +399,7 @@ int main(int argc, char* argv[])
     }
     Klogf("[kodi-ps5] HOME=%s\n", chosen);
     setenv("HOME", chosen, 1);
+
   }
   const std::string kodiData = std::string(std::getenv("HOME")) + "/.kodi";
   if (const int failed = OpenUpTree(kodiData)) // files left by earlier runs

@@ -244,6 +244,25 @@ void CWinSystemPS5GLContext::PresentRender(bool rendered, bool videoLayer)
       CEGLUtils::Log(LOGERROR, "eglSwapBuffers failed");
       throw std::runtime_error("eglSwapBuffers failed");
     }
+    if (m_countPresents) // kodi-debug: how many frames really reach the display
+    {
+      ++m_presents;
+      if (rendered)
+        ++m_presentsWithGui;
+      const auto now = std::chrono::steady_clock::now();
+      if (m_presentWindow.time_since_epoch().count() == 0)
+        m_presentWindow = now;
+      const double seconds = std::chrono::duration<double>(now - m_presentWindow).count();
+      if (seconds >= 5.0)
+      {
+        CLog::Log(LOGINFO,
+                  "PS5 presentation (kodi-debug): {:.1f} frames/s ({:.1f}/s with a GUI "
+                  "layer), paced at {:.3f} Hz",
+                  m_presents / seconds, m_presentsWithGui / seconds, VrrTargetRate());
+        m_presents = m_presentsWithGui = 0;
+        m_presentWindow = now;
+      }
+    }
     // The driver opens the video output with the first presented frame:
     // then report it and adopt the system's real refresh rate (e.g. 59.94).
     if (!m_videoOutLogged)

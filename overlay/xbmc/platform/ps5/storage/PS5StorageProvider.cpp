@@ -8,9 +8,13 @@
 
 #include "PS5StorageProvider.h"
 
+#include "utils/log.h"
+
 #include "MediaSource.h"
 
 #include <sys/stat.h>
+#include <dirent.h>
+#include <cerrno>
 
 std::unique_ptr<IStorageProvider> IStorageProvider::CreateInstance()
 {
@@ -47,8 +51,42 @@ void CPS5StorageProvider::GetLocalDrives(std::vector<CMediaSource>& localDrives)
 
 void CPS5StorageProvider::GetRemovableDrives(std::vector<CMediaSource>& removableDrives)
 {
-  // USB media appear at /mnt/usbN when the process is allowed to see them.
-  const char* const usb[] = {"/mnt/usb0", "/mnt/usb1", "/mnt/usb2", "/mnt/usb3"};
+  // USB media appear at /mnt/usbN (and extended storage at /mnt/extN) when the
+  // title's sandbox lets it see them. What it can see is logged once.
+  static const char* const usb[] = {"/mnt/usb0", "/mnt/usb1", "/mnt/usb2", "/mnt/usb3",
+                                    "/mnt/usb4", "/mnt/usb5", "/mnt/usb6", "/mnt/usb7",
+                                    "/mnt/ext0", "/mnt/ext1"};
+  static bool logged = false;
+  if (!logged)
+  {
+    logged = true;
+    for (const char* path : usb)
+    {
+      struct stat st;
+      if (stat(path, &st) != 0)
+      {
+        if (errno != ENOENT)
+          CLog::Log(LOGINFO, "CPS5StorageProvider: {}: not accessible (errno {})", path, errno);
+        continue;
+      }
+      DIR* dir = opendir(path);
+      const int dirErr = dir ? 0 : errno;
+      int entries = 0;
+      if (dir)
+      {
+        while (readdir(dir) && entries < 1000)
+          ++entries;
+        closedir(dir);
+      }
+      if (dir)
+        CLog::Log(LOGINFO, "CPS5StorageProvider: {}: present, {} entries readable", path,
+                  entries);
+      else
+        CLog::Log(LOGINFO, "CPS5StorageProvider: {}: present, cannot be listed (errno {})", path,
+                  dirErr);
+    }
+    CLog::Log(LOGINFO, "CPS5StorageProvider: USB check done (/mnt/usb0-7, /mnt/ext0-1)");
+  }
   for (const char* path : usb)
     Add(removableDrives, path, path);
 }

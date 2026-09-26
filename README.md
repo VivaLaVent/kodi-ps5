@@ -9,6 +9,9 @@ and installed as a regular home-screen title via ShadowMountPlus.
 > the XBMC Foundation or Sony. "Kodi" and the Kodi logo are trademarks of the
 > XBMC Foundation.
 
+**Community:** questions, test reports and discussion on
+[Discord](https://discord.gg/YB58bUZrqu).
+
 This repository contains no exploit, no Sony SDK code and no firmware files.
 The Sony library prototypes in `overlay/xbmc/platform/ps5/sce/` are clean-room
 declarations of the handful of functions Kodi needs.
@@ -21,33 +24,53 @@ working on 4.03 (ItemzFlow + etaHEN 2.3b).
 | Works | Not yet |
 | --- | --- |
 | Estuary GUI rendered natively at 3840x2160 (OpenGL 4.6 on the PS5 GPU) | HEVC Main10 / HDR in hardware (10-bit uses FFmpeg) |
-| Fixed output at the system rate (59.94 Hz) in the menus and whenever no video plays | Fixed 24/25/50 Hz output modes (not offered to titles) |
-| VRR during playback with *Adjust display refresh rate: On start/stop*: the lowest multiple of the video's frame rate within 48–120 Hz (23.976 → 71.93, 24 → 48, 25 → 50, 29.97 → 59.94) | VRR where the firmware lacks `sceVideoOutVrrUnpegFromFixedRate` (then: system rate) |
-| Display vsync clock for *Sync playback to display* (speed/pitch only; never changes the output rate) | |
+| Menus and stopped state at 60 Hz (59.94) | Fixed 24/25/50 Hz output modes (the PS5 refuses explicit rates from titles) |
+| VRR during playback, matched to the video's frame rate (see *Display*) | VRR with the PS5's VRR setting off |
+| *Sync playback to display* on a fixed 59.94 Hz output | The player debug overlay (L3) during VRR raises the rate to ~120 Hz |
 | DualSense navigation (as keyboard events) | Internet access via curl (add-on repository, online streams) |
 | Audio (UI sounds, playback) | Python add-ons (Python is not built yet) |
 | Video playback: H.264 and HEVC Main in hardware (VideoDec2), everything else in FFmpeg | Binary add-ons (no `dlopen` in a title) |
 | SMB2/3 and NFS network sources, UPnP | Listing under the Media tab (the GL driver fails in that sandbox) |
 | Thumbnails, databases, settings | Network browsing of `smb://` (enter the server's IP) |
 
-### Display behaviour
+### Display
 
-- Kodi runs at the system rate (59.94 Hz) in the menus and whenever no video
-  plays. It never uses a fixed 120 Hz output.
-- With *Settings → Player → Videos → Adjust display refresh rate* on **On
-  start/stop**, a video plays in **VRR** at the lowest multiple of its frame
-  rate within the PS5's VRR range of 48–120 Hz: 23.976 fps at 71.93 Hz, 24
-  at 48, 25 at 50, 29.97 at 59.94, 30/60 at 60. Kodi presents frames at
-  exactly that rate and the TV follows. Stopping the video returns to the
-  system rate. Every other setting keeps the system rate.
-- VRR needs, on the PS5: **VRR** on and **Enable 120 Hz Output** on
-  Automatic (*Screen and Video*): the system runs VRR through its high-
-  refresh mode, which Kodi releases from its 120 Hz peg with
-  `sceVideoOutVrrUnpegFromFixedRate`. If that fails - or the firmware lacks
-  the function - Kodi goes straight back to the system rate and logs why.
-- *Sync playback to display* is independent: it only adjusts playback speed
-  (and audio pitch) to the display clock. During VRR the display follows
-  Kodi, so Kodi uses its system clock.
+Two PS5 settings (*Settings → Screen and Video → Video Output*) and two Kodi
+settings (*Settings → Player → Videos*, settings level Advanced or Expert)
+decide the output:
+
+| PS5 **VRR** | Kodi *Adjust display refresh rate* | Menus | During a video |
+| --- | --- | --- | --- |
+| Off | any | 59.94 Hz fixed | 59.94 Hz fixed |
+| On | Off, Always or On start | 60 Hz (paced on the VRR link) | 60 Hz |
+| On | **On start/stop** | 60 Hz | **VRR at the video's rate** (table below) |
+
+With the PS5's VRR on, the system runs Kodi on a VRR link and the TV refreshes
+whenever Kodi presents a frame. Kodi paces its frames: 59.94 per second in the
+menus, and during a video the lowest multiple of the frame rate within the
+PS5's VRR range of 48–120 Hz:
+
+| Video | VRR rate | Frames shown |
+| --- | --- | --- |
+| 23.976 fps (films) | 71.93 Hz | each 3× |
+| 24 fps | 48 Hz | each 2× |
+| 25 fps (PAL) | 50 Hz | each 2× |
+| 29.97 / 30 fps | 59.94 / 60 Hz | each 2× |
+| 50 / 59.94 / 60 fps | 50 / 59.94 / 60 Hz | each 1× |
+
+Every frame is on screen equally long - no 3:2 judder, no speed change.
+Stopping the video returns to 60 Hz.
+
+- **Enable 120 Hz Output** on the PS5 should be **Automatic**: the system
+  builds its VRR link from the high-refresh mode Kodi declares.
+- **Sync playback to display** never changes the output rate. On the fixed
+  59.94 Hz output it adjusts playback speed (and audio pitch) to the display's
+  vblank clock; on the VRR link the display follows Kodi, so Kodi keeps its
+  own clock and the setting has nothing to correct.
+- The TV's own overlay (on an LG: the Game Dashboard) shows the rate: about
+  60 in the menus, the table's rate during a video.
+- Kodi's log records every decision: `[PS5] 25 fps: VRR at 2x = … 50.000Hz`
+  and `display mode …: VRR on; presenting at 50.000 Hz on the VRR link`.
 
 ## How it works
 
@@ -133,6 +156,7 @@ processes, so FTP cannot delete Kodi's data — these let Kodi do it:
 | `kodi-uninstall` | wipe Kodi's data and quit; the title folder can then be deleted over FTP |
 | `kodi-debug` | debug-level logging (slower; remove when done) |
 | `kodi-swdecode` | software (FFmpeg) video decoding only, no hardware decoder |
+| `kodi-home-download0` | keep Kodi's data in the title's download-data area (`/download0`, 2 GiB, set by `downloadDataSize`) instead of the title folder; it is then separate from the app, but not reachable over FTP (`kodi.log` only via klog). `kodi-reset` / `kodi-uninstall` clear both locations |
 
 ### Adding network sources
 
@@ -203,10 +227,16 @@ Things that differ from a FreeBSD desktop and cost a crash each to find:
 - **Display.** The GL driver's render size is a build profile (2160p60 by
   default, `PS5_SCANOUT_HEIGHT` in `scripts/18-build-ps5-opengl.sh`); on
   another output the PS5 scales, and Kodi's log names the matching profile.
-  A title may request two output presets: the system's mode and the
-  high-refresh one (`param.json` high-refresh flags), which the PS5 turns
-  into VRR; explicit refresh rates are refused (`UNSUPPORTED_OUTPUT_MODE`),
-  so fixed 24/25/50 Hz are not available to titles.
+  A title may request two output presets, the system's mode and the
+  high-refresh one (`param.json` high-refresh flags); explicit refresh rates
+  through the mode API are refused (`UNSUPPORTED_OUTPUT_MODE`). With the
+  PS5's VRR on, the system keeps the title on a ~120 Hz VRR link whatever it
+  requests, and that link follows the title's presentation - so Kodi's VRR
+  is frame pacing. `sceVideoOutVrrUnpegFromFixedRate` (in our extended
+  `libSceVideoOut` stub, `scripts/17`) is called as ProsperoLight does and
+  returns `0x8029001c` on firmware 10.01 without affecting the result. The
+  loader leaves *weak* imports empty and a title cannot resolve symbols by
+  name (`sceKernelDlsym`), so the stub import is a normal one.
 - **GL driver.** 2D R8/RG8 textures are tiled and uploaded pixel by pixel, so
   video frames use rectangle textures (patch 0008); the driver reports wrong
   buffer ages, so Kodi redraws the whole screen each frame.
@@ -217,9 +247,14 @@ Things that differ from a FreeBSD desktop and cost a crash each to find:
 2. Internet access (curl/TLS).
 3. GL driver: cheaper clears and draws at 4K (render headroom for VRR at
    higher rates), runtime-selected render size, a third display buffer.
-4. VRR on firmware without the unpeg function (if another route exists).
+4. The player debug overlay (L3) during VRR: keep the paced rate.
 5. A real DualSense joystick driver, on-screen keyboard.
 6. Python, binary add-ons.
+
+## Community
+
+Join the [Discord server](https://discord.gg/YB58bUZrqu) for help, test
+reports and development news.
 
 ## Contributing
 
@@ -234,7 +269,8 @@ LF (enforced by `.gitattributes`); the scripts are bash and break on CRLF.
 - BlackBearReloaded — [ps5-opengl](https://github.com/blackbearreloaded/ps5-opengl)
   and the PS5 native-app template.
 - Ronnie Sahlberg — [libsmb2](https://github.com/sahlberg/libsmb2).
-- ProsperoLight — reference for direct-memory allocation on a PS5 title.
+- ProsperoLight — reference for direct-memory allocation, the high-refresh
+  entitlement and VRR on a PS5 title.
 - The PS5 SDL backend, whose observations of the audio and pad libraries the
   `sce/` headers restate.
 - Team Kodi — for Kodi itself.
