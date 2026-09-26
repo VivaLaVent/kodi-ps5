@@ -19,12 +19,16 @@ BUILD="${BUILD:-$HOME/kodi-ps5-build}"
 NATIVE="${NATIVE:-$HOME/kodi-ps5-native}"
 export PS5_PAYLOAD_SDK="${PS5_PAYLOAD_SDK:-/opt/ps5-payload-sdk}"
 
-# our Sony link stubs (the SDK has none for these) must be in the sysroot
+# our Sony link stubs must be in the sysroot: libSceVideodec2 (the SDK has
+# none) and the SDK's libSceVideoOut extended with the VRR unpeg function
+NEED_STUBS=0
 for stub in "$HERE"/shims/sce_stubs/*.c; do
-  [ -f "$PS5_PAYLOAD_SDK/target/lib/$(basename "$stub" .c).so" ] || {
-    bash "$HERE/scripts/17-build-sce-stubs.sh" || { echo "!! stub build failed"; exit 1; }
-    break; }
+  [ -f "$PS5_PAYLOAD_SDK/target/lib/$(basename "$stub" .c).so" ] || NEED_STUBS=1
 done
+[ -f "$PS5_PAYLOAD_SDK/target/lib/libSceVideoOut.so.sdk" ] || NEED_STUBS=1
+if [ "$NEED_STUBS" = 1 ]; then
+  bash "$HERE/scripts/17-build-sce-stubs.sh" || { echo "!! stub build failed"; exit 1; }
+fi
 export PS5_OPENGL_PREFIX="${PS5_OPENGL_PREFIX:-/opt/ps5-opengl-gl46}"
 
 [ -f "$KODI_SRC/version.txt" ] || { echo "Kodi source not found at $KODI_SRC"; exit 1; }
