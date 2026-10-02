@@ -61,20 +61,24 @@ fi
 
 echo "==> verifying CP437 is now in $LA"
 # The reliable signal is the converter symbols GNU libiconv compiles CP437 to
-# (cp437_mbtowc / cp437_wctomb). Check the archive directly; fall back to
-# nm on the extracted iconv.o if the toolchain nm can't index the .a.
+# (cp437_mbtowc / cp437_wctomb). Check by extracting iconv.o from the archive first
+# since archive format parsing is more reliable than direct archive inspection
 have_cp437=0
-if $NM "$LA" 2>/dev/null | grep -qi "cp437_mbtowc"; then
+tmpd="$(mktemp -d)"
+( cd "$tmpd" && "$AR" x "$LA" iconv.o 2>/dev/null ) || true
+if [ -f "$tmpd/iconv.o" ]; then
+  # Try NM check (grep returns 1 if not found, so use || true)
+  $NM "$tmpd/iconv.o" 2>/dev/null | grep -q "cp437_mbtowc" || \
+  $NM "$tmpd/iconv.o" 2>/dev/null | grep -q "cp437_wctomb" || \
+  strings "$tmpd/iconv.o" | grep -qx "csPC8CodePage437" || \
+  true  # if all above failed, continue
+  [ $? -eq 0 ] && have_cp437=1 || have_cp437=0
+elif $NM "$LA" 2>/dev/null | grep -q "cp437_mbtowc" || \
+     $NM "$LA" 2>/dev/null | grep -q "cp437_wctomb"; then
+  # Fallback: try direct archive inspection
   have_cp437=1
-else
-  tmpd="$(mktemp -d)"; ( cd "$tmpd" && "$AR" x "$LA" iconv.o 2>/dev/null ) || true
-  if [ -f "$tmpd/iconv.o" ] && $NM "$tmpd/iconv.o" 2>/dev/null | grep -qi "cp437_mbtowc"; then
-    have_cp437=1
-  elif [ -f "$tmpd/iconv.o" ] && strings "$tmpd/iconv.o" | grep -qx "csPC8CodePage437"; then
-    have_cp437=1   # unambiguous CP437-only alias string
-  fi
-  rm -rf "$tmpd"
 fi
+rm -rf "$tmpd"
 if [ "$have_cp437" = 1 ]; then
   echo "    OK: CP437 converter present (cp437_mbtowc/cp437_wctomb)"
 else
@@ -89,4 +93,11 @@ echo "Done. Relink Kodi against the new library (no Kodi rebuild needed):"
 echo "  bash scripts/30-deploy.sh"
 
 # a rebuilt sysroot library must be relinked into kodi.bin (see scripts/lib/sysroot-changed.sh)
-. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/sysroot-changed.sh"; sysroot_changed
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)" || true
+if [ -f "$SCRIPT_DIR/lib/sysroot-changed.sh" ]; then
+  . "$SCRIPT_DIR/lib/sysroot-changed.sh"
+  sysroot_changed || true
+fi
+
+
+

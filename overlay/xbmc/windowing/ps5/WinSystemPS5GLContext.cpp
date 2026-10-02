@@ -10,7 +10,6 @@
 
 #include "platform/ps5/video/VideoBufferPS5.h"
 
-#include "platform/ps5/SandboxPS5.h"
 #include "platform/ps5/VideoOutInfo.h"
 #include "settings/DisplaySettings.h"
 
@@ -406,9 +405,6 @@ void CWinSystemPS5GLContext::PresentRender(bool rendered, bool videoLayer)
         EnsureSystemMode();
         ApplySystemRefreshRate(KODI::PLATFORM::PS5::QueryRefreshRate());
         DetectOutputModes();
-        // /data and USB drives: the sandbox may be opened only now - graphics
-        // and VideoOut cannot be brought up after that (EVO Player's findings)
-        KODI::PLATFORM::PS5::RequestSandboxOpen();
         unsigned sysWidth = 0, sysHeight = 0;
         if (KODI::PLATFORM::PS5::QuerySystemResolution(sysWidth, sysHeight))
         {

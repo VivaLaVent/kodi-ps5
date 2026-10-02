@@ -10,6 +10,7 @@
 #include "platform/ps5/BuildStamp.h"
 #include "platform/ps5/JitProbe.h"
 #include "application/AppParamParser.h"
+#include "platform/ps5/SandboxPS5.h"
 #include "application/AppParams.h"
 #include "platform/xbmc.h"
 
@@ -22,7 +23,9 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <chrono>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include <dirent.h>
@@ -31,6 +34,9 @@
 #include <unistd.h>
 
 extern "C" int sceKernelDebugOutText(int channel, const char* text);
+extern "C" char* getenv(const char* name);
+extern "C" int setenv(const char* name, const char* value, int overwrite);
+extern "C" int unsetenv(const char* name);
 // FreeBSD <dirent.h> declares these only with __BSD_VISIBLE; used by the
 // directory diagnostics below.
 extern "C" int getdents(int fd, char* buf, int nbytes);
@@ -87,6 +93,15 @@ constexpr int SQLITE_OPEN_CREATE = 0x00000004;
 
 namespace
 {
+constexpr const char* kEscapedTitleRoot = "/mnt/sandbox/PPSA99420_000";
+
+std::string TitlePath(const char* absolutePath, bool escapedSandbox)
+{
+  if (!escapedSandbox)
+    return absolutePath;
+  return std::string(kEscapedTitleRoot) + absolutePath;
+}
+
 extern "C" void XBMC_PS5_HandleSignal(int sig)
 {
   CPlatformPosix::RequestQuit();
@@ -326,12 +341,40 @@ static bool SwitchPresent(const char* path)
   return false;
 }
 
+
 int main(int argc, char* argv[])
 {
   // Written straight to klog: visible even if everything after this fails.
   Klog("[kodi-ps5] main() reached\n");
   Klogf("[kodi-ps5] build %s\n", KODI_PS5_BUILD_STAMP);
 
+  Klogf("[kodi-ps5] PID=%d\n[kodi-ps5] attempting sandbox escape\n", getpid());
+  KODI::PLATFORM::PS5::RequestSandboxOpen();
+  bool escapedSandbox = KODI::PLATFORM::PS5::IsSandboxOpen();
+  if (!escapedSandbox)
+  {
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+    while (std::chrono::steady_clock::now() < deadline)
+    {
+      std::this_thread::sleep_for(std::chrono::milliseconds(250));
+      if (KODI::PLATFORM::PS5::IsSandboxOpen())
+      {
+        escapedSandbox = true;
+        break;
+      }
+    }
+  }
+  Klogf("[kodi-ps5] sandbox mode: %s\n", escapedSandbox ? "escaped (title root remapped)"
+                                                          : "jailed (native title root)");
+  if (escapedSandbox)
+    setenv("KODI_PS5_TITLE_ROOT", kEscapedTitleRoot, 1);
+  else
+    unsetenv("KODI_PS5_TITLE_ROOT");
+
+  const std::string app0 = TitlePath("/app0", escapedSandbox);
+  const std::string download0 = TitlePath("/download0", escapedSandbox);
+  const std::string dataPath = TitlePath("/data", escapedSandbox);
+  const std::string kodiHomePath = app0 + "/share/kodi";
   struct sigaction signalHandler;
   std::memset(&signalHandler, 0, sizeof(signalHandler));
   signalHandler.sa_handler = &XBMC_PS5_HandleSignal;
@@ -361,29 +404,35 @@ int main(int argc, char* argv[])
   //                   folder can be deleted over FTP
   // Kodi's data lives in its save data, /download0/.kodi (see the HOME choice
   // below); these wipe that, not the read-only /app0 image.
-  if (SwitchPresent("/app0/kodi-uninstall"))
+  const std::string uninstallSwitch = app0 + "/kodi-uninstall";
+  if (SwitchPresent(uninstallSwitch.c_str()))
   {
-    const int n = RemoveTree("/download0/.kodi");
-    unlink("/app0/kodi-uninstall");
-    Klogf("[kodi-ps5] kodi-uninstall found: removed %d files and folders of /download0/.kodi, "
-          "quitting\n", n);
+    const std::string kodiDataPath = download0 + "/.kodi";
+    const int n = RemoveTree(kodiDataPath);
+    unlink(uninstallSwitch.c_str());
+    Klogf("[kodi-ps5] kodi-uninstall found: removed %d files and folders of %s, quitting\n", n,
+          kodiDataPath.c_str());
     _exit(0);
   }
-  if (SwitchPresent("/app0/kodi-reset"))
+  const std::string resetSwitch = app0 + "/kodi-reset";
+  if (SwitchPresent(resetSwitch.c_str()))
   {
-    const int n = RemoveTree("/download0/.kodi");
-    unlink("/app0/kodi-reset");
-    Klogf("[kodi-ps5] kodi-reset found: removed %d files and folders of /download0/.kodi\n", n);
+    const std::string kodiDataPath = download0 + "/.kodi";
+    const int n = RemoveTree(kodiDataPath);
+    unlink(resetSwitch.c_str());
+    Klogf("[kodi-ps5] kodi-reset found: removed %d files and folders of %s\n", n,
+          kodiDataPath.c_str());
   }
 
   // kodi-jitprobe: one-shot diagnostic. Tests whether this title can obtain
   // executable memory (the prerequisite for an in-process binary-add-on
   // loader) and logs the verdict over klog, then removes its own switch and
   // continues starting Kodi normally. See platform/ps5/JitProbe.cpp.
-  if (SwitchPresent("/app0/kodi-jitprobe"))
+  const std::string jitProbeSwitch = app0 + "/kodi-jitprobe";
+  if (SwitchPresent(jitProbeSwitch.c_str()))
   {
     XBMC_PS5_RunJitProbe();
-    unlink("/app0/kodi-jitprobe");
+    unlink(jitProbeSwitch.c_str());
   }
 
   // Kodi writes everything under $HOME/.kodi, and the only place a title may
@@ -403,17 +452,19 @@ int main(int argc, char* argv[])
   // loaders start the title with HOME already set, and Python add-ons, temp
   // files and Python https all depend on this env regardless.
   std::string chosen;
-  if (const char* existing = std::getenv("HOME"))
+  if (const char* existing = getenv("HOME"))
   {
     chosen = existing;
     Klogf("[kodi-ps5] HOME already set to %s\n", chosen.c_str());
   }
   else
   {
-    chosen = "/download0";
-    if (SwitchPresent("/app0/kodi-home-data") && ProbeHome("/data/kodi"))
-      chosen = "/data/kodi";
-    if (!ProbeHome(chosen.c_str()))
+    chosen = download0;
+    const std::string homeDataSwitch = app0 + "/kodi-home-data";
+    const std::string dataKodi = dataPath + "/kodi";
+    if (SwitchPresent(homeDataSwitch.c_str()) && ProbeHome(dataKodi))
+      chosen = dataKodi;
+    if (!ProbeHome(chosen))
       Klogf("[kodi-ps5] %s is not writable; Kodi will fail to start (is downloadDataSize set in "
             "param.json?)\n", chosen.c_str());
     Klogf("[kodi-ps5] HOME=%s\n", chosen.c_str());
@@ -422,11 +473,13 @@ int main(int argc, char* argv[])
   {
     // Python add-ons: the standard library ships in the title (Install.cmake)
     struct stat pythonLib;
-    if (stat("/app0/share/kodi/python/lib/python3.14", &pythonLib) == 0)
+    const std::string pythonLibPath = kodiHomePath + "/python/lib/python3.14";
+    if (stat(pythonLibPath.c_str(), &pythonLib) == 0)
     {
-      setenv("PYTHONHOME", "/app0/share/kodi/python", 1);
+      const std::string pythonHome = kodiHomePath + "/python";
+      setenv("PYTHONHOME", pythonHome.c_str(), 1);
       setenv("PYTHONNOUSERSITE", "1", 1);
-      Klog("[kodi-ps5] PYTHONHOME=/app0/share/kodi/python\n");
+      Klogf("[kodi-ps5] PYTHONHOME=%s\n", pythonHome.c_str());
     }
     // Python's tempfile (and anything else honoring TMPDIR) needs a writable
     // temp directory; a title has no /tmp. Kodi's own special://temp lives in
@@ -439,16 +492,17 @@ int main(int argc, char* argv[])
     // certificate check. Point the defaults at the CA bundle Kodi ships;
     // Kodi's own curl passes its CAINFO explicitly and is unaffected.
     struct stat caBundle;
-    if (stat("/app0/share/kodi/system/certs/cacert.pem", &caBundle) == 0)
-      setenv("SSL_CERT_FILE", "/app0/share/kodi/system/certs/cacert.pem", 1);
+    const std::string caBundlePath = kodiHomePath + "/system/certs/cacert.pem";
+    if (stat(caBundlePath.c_str(), &caBundle) == 0)
+      setenv("SSL_CERT_FILE", caBundlePath.c_str(), 1);
     else
       Klog("[kodi-ps5] no cacert.pem in the title: Python https will fail verification\n");
   }
   // A marker in the save data, so the folder is identifiable as Kodi's on disk
   // (over FTP) as well as in the console's data manager.
   {
-    const std::string marker = std::string(std::getenv("HOME")) + "/sce_sys/keystone-note.txt";
-    MakeDirs(std::string(std::getenv("HOME")) + "/sce_sys");
+    const std::string marker = std::string(getenv("HOME")) + "/sce_sys/keystone-note.txt";
+    MakeDirs(std::string(getenv("HOME")) + "/sce_sys");
     const int fd = open(marker.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
     if (fd >= 0)
     {
@@ -459,27 +513,27 @@ int main(int argc, char* argv[])
     }
   }
 
-  const std::string kodiData = std::string(std::getenv("HOME")) + "/.kodi";
+  const std::string kodiData = std::string(getenv("HOME")) + "/.kodi";
   if (const int failed = OpenUpTree(kodiData)) // files left by earlier runs
     Klogf("[kodi-ps5] could not open up permissions of %d items in %s\n", failed,
           kodiData.c_str());
-  setenv("KODI_HOME", "/app0/share/kodi", 0);
+  setenv("KODI_HOME", kodiHomePath.c_str(), 0);
 
   // Directory listing check (Kodi's add-on scan starts with this folder).
   {
-    const char* path = "/app0/share/kodi/addons";
+    const std::string path = kodiHomePath + "/addons";
     struct stat st;
     std::memset(&st, 0, sizeof(st));
-    const int sr = stat(path, &st);
-    Klogf("[kodi-ps5] stat %s: %d (errno %d) mode %o nlink %u size %lld\n", path, sr,
+    const int sr = stat(path.c_str(), &st);
+    Klogf("[kodi-ps5] stat %s: %d (errno %d) mode %o nlink %u size %lld\n", path.c_str(), sr,
           sr ? errno : 0, static_cast<unsigned>(st.st_mode), static_cast<unsigned>(st.st_nlink),
           static_cast<long long>(st.st_size));
-    const char* known = "/app0/share/kodi/addons/skin.estuary/addon.xml";
-    const int kr = stat(known, &st);
-    Klogf("[kodi-ps5] stat %s: %d (errno %d) size %lld\n", known, kr, kr ? errno : 0,
+    const std::string known = path + "/skin.estuary/addon.xml";
+    const int kr = stat(known.c_str(), &st);
+    Klogf("[kodi-ps5] stat %s: %d (errno %d) size %lld\n", known.c_str(), kr, kr ? errno : 0,
           static_cast<long long>(st.st_size));
 
-    const int fd = open(path, O_RDONLY | O_DIRECTORY);
+    const int fd = open(path.c_str(), O_RDONLY | O_DIRECTORY);
     if (fd < 0)
       Klogf("[kodi-ps5] open dir: errno %d (%s)\n", errno, std::strerror(errno));
     else
@@ -505,9 +559,9 @@ int main(int argc, char* argv[])
     }
 
     errno = 0;
-    DIR* dir = opendir(path);
+    DIR* dir = opendir(path.c_str());
     if (!dir)
-      Klogf("[kodi-ps5] opendir %s: errno %d (%s)\n", path, errno, std::strerror(errno));
+      Klogf("[kodi-ps5] opendir %s: errno %d (%s)\n", path.c_str(), errno, std::strerror(errno));
     else
     {
       int entries = 0;
@@ -516,7 +570,7 @@ int main(int argc, char* argv[])
         ++entries;
       const int err = errno;
       closedir(dir);
-      Klogf("[kodi-ps5] %s lists %d entries (errno %d)\n", path, entries, err);
+      Klogf("[kodi-ps5] %s lists %d entries (errno %d)\n", path.c_str(), entries, err);
     }
   }
 
@@ -529,19 +583,15 @@ int main(int argc, char* argv[])
   // Switches that stay in place (unlike reset/uninstall) are read here, once,
   // and each found switch sets an environment variable that the rest of the
   // port (the hardware decoder) reads.
-  static const struct
-  {
-    const char* file;
-    const char* env;
-  } kSwitches[] = {
-      {"/app0/kodi-debug", "KODI_PS5_DEBUG"},
+  const std::vector<std::pair<std::string, const char*>> switches = {
+      {app0 + "/kodi-debug", "KODI_PS5_DEBUG"},
   };
-  for (const auto& sw : kSwitches)
+  for (const auto& sw : switches)
   {
-    if (SwitchPresent(sw.file))
+    if (SwitchPresent(sw.first.c_str()))
     {
-      setenv(sw.env, "1", 1);
-      Klogf("[kodi-ps5] switch %s found (%s=1)\n", sw.file + 6, sw.env);
+      setenv(sw.second, "1", 1);
+      Klogf("[kodi-ps5] switch %s found (%s=1)\n", sw.first.c_str(), sw.second);
     }
   }
   if (getenv("KODI_PS5_DEBUG"))
@@ -556,6 +606,7 @@ int main(int argc, char* argv[])
   Klog("[kodi-ps5] setting up the app environment\n");
   CAppEnvironment::SetUp(appParamParser.GetAppParams());
   Klog("[kodi-ps5] starting XBMC_Run\n");
+
   const int status = XBMC_Run(true);
   char msg[96];
   std::snprintf(msg, sizeof(msg), "[kodi-ps5] XBMC_Run returned %d\n", status);

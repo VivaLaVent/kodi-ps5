@@ -341,12 +341,13 @@ PY
 echo "==> 6. Kodi data into the title folder"
 mkdir -p "$DIST/share"
 cp -a "$STAGE/app0/share/kodi" "$DIST/share/"
+chmod -R 0755 "$DIST"
 du -sh "$DIST" | awk '{print "    title folder size: "$1}'
 
 if [ -n "${PS5_HOST:-}" ]; then
-  echo "==> uploading to ftp://$PS5_HOST:${PS5_FTP_PORT:-2121}/data/homebrew/$TITLE_ID"
-  command -v lftp >/dev/null || { echo "   (install lftp, or copy the folder manually)"; }
-  lftp -e "mirror -R --delete '$DIST' '/data/homebrew/$TITLE_ID'; quit" -p "${PS5_FTP_PORT:-2121}" "$PS5_HOST"
+   echo "==> uploading to ftp://$PS5_HOST:${PS5_FTP_PORT:-2121}/data/homebrew/$TITLE_ID"
+   command -v lftp >/dev/null || { echo "   (install lftp, or copy the folder manually)"; }
+   lftp -e "mirror -R --delete --no-perms '$DIST' '/data/homebrew/$TITLE_ID'; quit" -p "${PS5_FTP_PORT:-2121}" "$PS5_HOST"
 fi
 echo
 echo "Title folder: $DIST"

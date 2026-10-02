@@ -8,14 +8,19 @@
 
 #include "PlatformPS5.h"
 
+#include "utils/log.h"
+
 #include "filesystem/CurlFile.h"
 #include "platform/ps5/input/PS5ImeDialog.h"
 #include "platform/ps5/network/NetworkSelfTestPS5.h"
 #include "platform/ps5/video/VideoDec2.h"
-#include "utils/log.h"
 
 #include "platform/ps5/audio/AESinkPS5.h"
 #include "windowing/ps5/WinSystemPS5GLContext.h"
+
+#ifdef Log
+#undef Log
+#endif
 
 CPlatform* CPlatform::CreateInstance()
 {

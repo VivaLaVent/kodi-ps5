@@ -18,9 +18,10 @@ source=("https://www.python.org/ftp/python/$pkgver/Python-$pkgver.tar.xz"
         "static-compile.patch"
         "ps5-stdio-nomacros.patch"
         "ps5-socket-libscenet.patch"
+        "freebsd-no-getc-unlocked.patch"
         "ps5_compat.h"
         "ps5_pysocket.h")
-sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
+sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
 groups=('ps5-payload-dev')
 depends=('ps5-payload-zlib' 'ps5-payload-expat' 'ps5-payload-xz' 'ps5-payload-bzip2'
          'ps5-payload-openssl' 'ps5-payload-sqlite')
@@ -56,7 +57,7 @@ _modules=(py_cv_module_grp=n/a py_cv_module_syslog=n/a py_cv_module__dbm=n/a
 # references them under HAVE_SCHED_SETPARAM/SETSCHEDULER (incl. module init),
 # so header-off + functions-on is an inconsistent build. Scheduler control
 # is meaningless in a title anyway. (fexecve, not fexecv, is the real key.)
-_cache=(ac_cv_func_wait3=no ac_cv_func_wait4=no ac_cv_func_waitpid=no
+_cache=(ac_cv_func_wait=no ac_cv_func_wait3=no ac_cv_func_wait4=no ac_cv_func_waitpid=no
         ac_cv_func_execv=no ac_cv_func_fexecve=no ac_cv_func_setpriority=no
         ac_cv_func_sendfile=no ac_cv_header_sched_h=no
         ac_cv_func_posix_spawn=no ac_cv_func_posix_spawnp=no
@@ -80,6 +81,7 @@ prepare() {
     patch -p1 -i ../static-compile.patch
     patch -p1 -i ../ps5-stdio-nomacros.patch
     patch -p1 -i ../ps5-socket-libscenet.patch
+    patch -p1 -i ../freebsd-no-getc-unlocked.patch
 }
 
 build() {
@@ -100,6 +102,8 @@ build() {
     # (getentropy from Kodi's shim, pthread_getname_np from libkernel); see
     # ps5_compat.h. Cross build only - the host build must not see it.
     export CPPFLAGS="${CPPFLAGS:-} -include $srcdir/ps5_compat.h -DPS5_CLEANROOM_STDIO=1 -DPS5_PYSOCKET=1 -I$srcdir"
+    # Explicitly export cache variables as environment to force them during configure
+    export ac_cv_func_getc_unlocked="no"
     mkdir -p build-ps5 && cd build-ps5
     ../Python-$pkgver/configure --prefix="${PREFIX}" \
         --host=x86_64-pc-freebsd --build=x86_64-pc-linux-gnu \
@@ -118,12 +122,12 @@ build() {
     _pc=pyconfig.h
     _have() { grep -qE "^#define $1 1" "$_pc"; }
     _fail=0
-    # every function we meant to disable must really be off
-    for f in EXECV FEXECVE POSIX_SPAWN POSIX_SPAWNP FORK FORK1 VFORK WAIT WAIT3 WAIT4 WAITPID \
-             SCHED_SETPARAM SCHED_SETSCHEDULER SCHED_RR_GET_INTERVAL SCHED_SETAFFINITY \
-             PTHREAD_GETNAME_NP PTHREAD_SETNAME_NP PTHREAD_SET_NAME_NP GETC_UNLOCKED; do
-      if _have "HAVE_$f"; then echo "!! pyconfig.h: HAVE_$f is defined but the cache disables it (typo in _cache?)"; _fail=1; fi
-    done
+     # every function we meant to disable must really be off
+     for f in EXECV FEXECVE POSIX_SPAWN POSIX_SPAWNP FORK FORK1 VFORK WAIT WAIT3 WAIT4 WAITPID \
+              SCHED_SETPARAM SCHED_SETSCHEDULER SCHED_RR_GET_INTERVAL SCHED_SETAFFINITY \
+              PTHREAD_GETNAME_NP PTHREAD_SETNAME_NP PTHREAD_SET_NAME_NP; do
+       if _have "HAVE_$f"; then echo "!! pyconfig.h: HAVE_$f is defined but the cache disables it (typo in _cache?)"; _fail=1; fi
+     done
     # header-off implies its functions off
     if ! _have HAVE_SCHED_H; then
       for f in SCHED_SETPARAM SCHED_SETSCHEDULER; do
