@@ -14,6 +14,7 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+. "$HERE/scripts/lib/platform-src.sh"
 KODI_SRC="${KODI_SRC:-$HOME/kodi}"
 BUILD="${BUILD:-$HOME/kodi-ps5-build}"
 NATIVE="${NATIVE:-$HOME/kodi-ps5-native}"
@@ -35,67 +36,102 @@ export PS5_OPENGL_PREFIX="${PS5_OPENGL_PREFIX:-/opt/ps5-opengl-gl46}"
 
 # Kodi patches always start from Kodi's own files: restore every file a patch
 # touches from git, so a patch that changed between rounds (or one applied
-# only partly before) cannot leave a mixed file behind.
-# The patch folder must match the manifest exactly: extracting a release zip
-# over the folder never deletes files, so a removed or renamed patch would
-# otherwise linger and be applied (or fail) alongside the current one.
-if [ -f "$HERE/patches/kodi/manifest.txt" ]; then
-  EXPECTED=$(sort "$HERE/patches/kodi/manifest.txt")
-  PRESENT=$(ls "$HERE"/patches/kodi/*.patch | xargs -n1 basename | sort)
-  if [ "$EXPECTED" != "$PRESENT" ]; then
-    echo "!! patches/kodi does not match patches/kodi/manifest.txt:"
-    diff <(echo "$EXPECTED") <(echo "$PRESENT") | sed 's/^</   missing:/; s/^>/   stale (delete it):/' | grep 'missing\|stale'
-    exit 1
-  fi
-fi
-PATCHED_FILES=$(grep -h '^+++ b/' "$HERE"/patches/kodi/*.patch | sed 's|^+++ b/||; s|\t.*||' | sort -u)
-if git -C "$KODI_SRC" rev-parse --git-dir >/dev/null 2>&1; then
-  echo "==> restoring the $(echo "$PATCHED_FILES" | wc -l) Kodi files our patches change"
-  for f in $PATCHED_FILES; do
-    git -C "$KODI_SRC" checkout -- "$f" 2>/dev/null || echo "   note: $f is not tracked by git"
-  done
-  CLEAN_BASE=1
+# Two modes:
+#  FORK (default when $KODI_SRC/xbmc/platform/ps5 is tracked by git there): the
+#       checkout IS the source - patches and overlay already live in it as the
+#       ps5 platform series. Nothing is copied or patched; we only verify.
+#  LEGACY (the old overlay+patches flow, for the legacy-overlay branch).
+if git -C "$KODI_SRC" ls-files --error-unmatch xbmc/platform/ps5/main.cpp >/dev/null 2>&1; then
+  MODE=fork
 else
-  echo "   note: $KODI_SRC is not a git checkout: patches go on top of the current files"
-  CLEAN_BASE=0
+  MODE=legacy
 fi
+echo "==> source mode: $MODE ($KODI_SRC)"
 
-# Overlay files are copied only where their content differs, with a fresh
-# timestamp: "cp -a" kept the timestamps from the zip, which can be older than
-# the last build's objects, so ninja skipped changed files.
-echo "==> applying overlay to $KODI_SRC"
-OVERLAY_CHANGED=0
-while IFS= read -r -d '' f; do
-  dst="$KODI_SRC/${f#"$HERE"/overlay/}"
-  if ! cmp -s "$f" "$dst"; then
-    mkdir -p "$(dirname "$dst")"
-    cp "$f" "$dst"
-    OVERLAY_CHANGED=$((OVERLAY_CHANGED + 1))
+if [ "$MODE" = fork ]; then
+  # Verify the series is present and the tree is clean of stray overlay copies.
+  if [ ! -f "$KODI_SRC/xbmc/platform/ps5/elf/ElfLoader.cpp" ] || \
+     ! grep -q "TARGET_PS5" "$KODI_SRC/xbmc/utils/TimeUtils.cpp"; then
+    echo "!! $KODI_SRC does not carry the ps5 platform series (checkout ps5-piers or ps5-omega)"; exit 1
   fi
-done < <(find "$HERE/overlay" -type f -print0)
-echo "==> overlay: $OVERLAY_CHANGED files updated"
-
-# Build stamp: the git short-hash (plus -dirty) into BuildStamp.h on the tree,
-# so the build embeds it and every log says exactly which build it is.
-STAMP="$(cd "$HERE" && git describe --always --dirty 2>/dev/null || echo unknown)"
-STAMP_H="$KODI_SRC/xbmc/platform/ps5/BuildStamp.h"
-if [ -f "$STAMP_H" ]; then
-  sed -i "s/#define KODI_PS5_BUILD_STAMP \"[^\"]*\"/#define KODI_PS5_BUILD_STAMP \"$STAMP\"/" "$STAMP_H"
-  echo "==> build stamp: $STAMP"
-fi
-
-
-# Small patches to Kodi's own files that the overlay cannot express, in order.
-for p in "$HERE"/patches/kodi/*.patch; do
-  [ -f "$p" ] || continue
-  if [ "$CLEAN_BASE" = 1 ]; then
-    ( cd "$KODI_SRC" && patch -p1 --forward --no-backup-if-mismatch -r - --silent < "$p" ) || {
-      echo "!! Kodi patch $(basename "$p") does not apply to this Kodi revision"; exit 1; }
+  if [ -n "$(git -C "$KODI_SRC" status --porcelain 2>/dev/null)" ]; then
+    echo "!! $KODI_SRC has uncommitted changes; commit them (the stamp must name a real commit)"; exit 1
+  fi
+  # Provenance: the Kodi tree's own describe - tag/branch + commit of the series.
+  STAMP="$(git -C "$KODI_SRC" describe --always --tags --dirty 2>/dev/null || echo unknown)"
+  KODI_BRANCH="$(git -C "$KODI_SRC" rev-parse --abbrev-ref HEAD 2>/dev/null)"
+  STAMP="${KODI_BRANCH}-${STAMP}"
+  STAMP_H="$KODI_SRC/xbmc/platform/ps5/BuildStamp.h"
+  if [ -f "$STAMP_H" ]; then
+    sed -i "s/#define KODI_PS5_BUILD_STAMP \"[^\"]*\"/#define KODI_PS5_BUILD_STAMP \"$STAMP\"/" "$STAMP_H"
+    # the stamp edit must not dirty the tree for the next provenance check
+    git -C "$KODI_SRC" update-index --assume-unchanged "xbmc/platform/ps5/BuildStamp.h" 2>/dev/null || true
+    echo "==> build stamp: $STAMP"
+  fi
+  echo "==> Kodi series: $(git -C "$KODI_SRC" log --oneline | grep -c '^[0-9a-f]* ps5') ps5 commits on $KODI_BRANCH"
+else
+# only partly before) cannot leave a mixed file behind.
+  # The patch folder must match the manifest exactly: extracting a release zip
+  # over the folder never deletes files, so a removed or renamed patch would
+  # otherwise linger and be applied (or fail) alongside the current one.
+  if [ -f "$HERE/patches/kodi/manifest.txt" ]; then
+    EXPECTED=$(sort "$HERE/patches/kodi/manifest.txt")
+    PRESENT=$(ls "$HERE"/patches/kodi/*.patch | xargs -n1 basename | sort)
+    if [ "$EXPECTED" != "$PRESENT" ]; then
+      echo "!! patches/kodi does not match patches/kodi/manifest.txt:"
+      diff <(echo "$EXPECTED") <(echo "$PRESENT") | sed 's/^</   missing:/; s/^>/   stale (delete it):/' | grep 'missing\|stale'
+      exit 1
+    fi
+  fi
+  PATCHED_FILES=$(grep -h '^+++ b/' "$HERE"/patches/kodi/*.patch | sed 's|^+++ b/||; s|\t.*||' | sort -u)
+  if git -C "$KODI_SRC" rev-parse --git-dir >/dev/null 2>&1; then
+    echo "==> restoring the $(echo "$PATCHED_FILES" | wc -l) Kodi files our patches change"
+    for f in $PATCHED_FILES; do
+      git -C "$KODI_SRC" checkout -- "$f" 2>/dev/null || echo "   note: $f is not tracked by git"
+    done
+    CLEAN_BASE=1
   else
-    ( cd "$KODI_SRC" && patch -p1 -N --no-backup-if-mismatch -r - --silent < "$p" ) || true
+    echo "   note: $KODI_SRC is not a git checkout: patches go on top of the current files"
+    CLEAN_BASE=0
   fi
-done
-echo "==> $(ls "$HERE"/patches/kodi/*.patch | wc -l) Kodi patches applied"
+  
+  # Overlay files are copied only where their content differs, with a fresh
+  # timestamp: "cp -a" kept the timestamps from the zip, which can be older than
+  # the last build's objects, so ninja skipped changed files.
+  echo "==> applying overlay to $KODI_SRC"
+  OVERLAY_CHANGED=0
+  while IFS= read -r -d '' f; do
+    dst="$KODI_SRC/${f#"$HERE"/overlay/}"
+    if ! cmp -s "$f" "$dst"; then
+      mkdir -p "$(dirname "$dst")"
+      cp "$f" "$dst"
+      OVERLAY_CHANGED=$((OVERLAY_CHANGED + 1))
+    fi
+  done < <(find "$HERE/overlay" -type f -print0)
+  echo "==> overlay: $OVERLAY_CHANGED files updated"
+  
+  # Build stamp: the git short-hash (plus -dirty) into BuildStamp.h on the tree,
+  # so the build embeds it and every log says exactly which build it is.
+  STAMP="$(cd "$HERE" && git describe --always --dirty 2>/dev/null || echo unknown)"
+  STAMP_H="$KODI_SRC/xbmc/platform/ps5/BuildStamp.h"
+  if [ -f "$STAMP_H" ]; then
+    sed -i "s/#define KODI_PS5_BUILD_STAMP \"[^\"]*\"/#define KODI_PS5_BUILD_STAMP \"$STAMP\"/" "$STAMP_H"
+    echo "==> build stamp: $STAMP"
+  fi
+  
+  
+  # Small patches to Kodi's own files that the overlay cannot express, in order.
+  for p in "$HERE"/patches/kodi/*.patch; do
+    [ -f "$p" ] || continue
+    if [ "$CLEAN_BASE" = 1 ]; then
+      ( cd "$KODI_SRC" && patch -p1 --forward --no-backup-if-mismatch -r - --silent < "$p" ) || {
+        echo "!! Kodi patch $(basename "$p") does not apply to this Kodi revision"; exit 1; }
+    else
+      ( cd "$KODI_SRC" && patch -p1 -N --no-backup-if-mismatch -r - --silent < "$p" ) || true
+    fi
+  done
+  echo "==> $(ls "$HERE"/patches/kodi/*.patch | wc -l) Kodi patches applied"
+fi
 
 echo "==> configuring in $BUILD"
 mkdir -p "$BUILD"

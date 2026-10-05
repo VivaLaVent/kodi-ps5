@@ -1,6 +1,8 @@
 #include "platform/ps5/elf/ElfLoader.h"
 
 #include <cerrno>
+#include <cstdarg>
+#include <cstdlib>
 #include <cstdio>
 #include <cstring>
 #include <sys/mman.h>
@@ -45,6 +47,36 @@ inline u32 R_TYPE(u64 i) { return static_cast<u32>(i & 0xffffffff); }
 size_t page() { long p = sysconf(_SC_PAGESIZE); return p > 0 ? static_cast<size_t>(p) : 0x4000; }
 u64 trunc_page(u64 x, size_t pg) { return x & ~static_cast<u64>(pg - 1); }
 u64 round_page(u64 x, size_t pg) { return (x + pg - 1) & ~static_cast<u64>(pg - 1); }
+} // namespace
+
+// Progress trace to the kernel log. Deliberately NOT CLog: a page fault while
+// loading kills the process before CLog flushes, and three rounds of guards
+// here produced no output at all for that reason. sceKernelDebugOutText is
+// unbuffered, so a line written before a step survives a crash in that step.
+extern "C" int sceKernelDebugOutText(int channel, const char* text);
+namespace
+{
+// Per-symbol tracing fires for every relocation (hundreds per add-on): only
+// with the kodi-debug switch, which main.cpp exports as KODI_PS5_DEBUG. Reading
+// an env var keeps this independent of where the switch file lives.
+bool verbose()
+{
+  static const bool v = std::getenv("KODI_PS5_DEBUG") != nullptr;
+  return v;
+}
+
+void klog(const char* fmt, ...)
+{
+  char buf[512];
+  va_list ap;
+  va_start(ap, fmt);
+  int n = std::vsnprintf(buf, sizeof buf - 2, fmt, ap);
+  va_end(ap);
+  if (n < 0) return;
+  if (n > static_cast<int>(sizeof buf) - 2) n = sizeof buf - 2;
+  buf[n] = '\n'; buf[n + 1] = 0;
+  sceKernelDebugOutText(0, buf);
+}
 } // namespace
 
 namespace ps5elf
@@ -107,6 +139,11 @@ bool resolve(Image* img, u32 symidx, u64* out, char* err, size_t errlen)
                   img->symcount == 0 ? ": DT_HASH/DT_GNU_HASH missing or unparsed" : "");
     return false;
   }
+  // Trace before touching the table: if THIS faults, the klog line names
+  // the index and pointer, which is what three silent crashes never told us.
+  if (verbose())
+    klog("[ps5elf] resolve sym %u of %u (entry %p)", symidx, img->symcount,
+         static_cast<const void*>(&img->symtab[symidx]));
   const Sym& s = img->symtab[symidx];
   if (s.st_shndx != SHN_UNDEF)
   {
@@ -120,6 +157,10 @@ bool resolve(Image* img, u32 symidx, u64* out, char* err, size_t errlen)
     return false;
   }
   const char* name = img->strtab + s.st_name;
+  if (verbose())
+    klog("[ps5elf]   -> name @%p (st_name %u, shndx %u, value %#llx)",
+         static_cast<const void*>(name), s.st_name, s.st_shndx,
+         static_cast<unsigned long long>(s.st_value));
   void* h = img->resolver ? img->resolver(name, img->user) : nullptr;
   if (h)
   {
@@ -185,7 +226,11 @@ bool apply_rela(Image* img, const Rela* r, size_t n, char* err, size_t errlen)
 Image* load(const void* image, size_t image_len, HostResolver resolver, void* user,
             char* err, size_t errlen)
 {
-  auto fail = [&](const char* m) -> Image* { std::snprintf(err, errlen, "%s", m); return nullptr; };
+  auto fail = [&](const char* m) -> Image* {
+    std::snprintf(err, errlen, "%s", m);
+    klog("[ps5elf] load failed: %s", m);
+    return nullptr;
+  };
   if (image_len < sizeof(Ehdr))
     return fail("image too small");
   const auto* e = static_cast<const Ehdr*>(image);
@@ -319,6 +364,13 @@ Image* load(const void* image, size_t image_len, HostResolver resolver, void* us
   // symcount only needed by symbol(); relocations index directly.
 
   // Apply relocations.
+  klog("[ps5elf] parsed: %u dyn syms, %zu rela, %zu jmprel, strsz %zu, map %p..%p, base %p, "
+       "symtab %p, strtab %p",
+       img->symcount, relasz / sizeof(Rela), pltrelsz / sizeof(Rela), img->strsz,
+       static_cast<void*>(img->map), static_cast<void*>(img->map + img->span),
+       static_cast<void*>(img->base), static_cast<const void*>(img->symtab),
+       static_cast<const void*>(img->strtab));
+
   // Refuse up front when the symbol count is unknown: resolve() would
   // otherwise index the symbol table unchecked (page fault seen on console).
   if (img->symcount == 0 && (relasz || pltrelsz))
@@ -331,10 +383,12 @@ Image* load(const void* image, size_t image_len, HostResolver resolver, void* us
     delete img;
     return nullptr;
   }
+  klog("[ps5elf] applying %zu .rela.dyn relocations", relasz / sizeof(Rela));
   if (rela && !apply_rela(img, rela, relasz / sizeof(Rela), err, errlen))
   {
     munmap(m, span); delete img; return nullptr;
   }
+  klog("[ps5elf] applying %zu .rela.plt relocations", pltrelsz / sizeof(Rela));
   if (jmprel && !apply_rela(img, jmprel, pltrelsz / sizeof(Rela), err, errlen))
   {
     munmap(m, span); delete img; return nullptr;

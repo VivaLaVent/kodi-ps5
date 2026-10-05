@@ -9,9 +9,10 @@
 set -uo pipefail
 export PS5_PAYLOAD_SDK="${PS5_PAYLOAD_SDK:-/opt/ps5-payload-sdk}"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+. "$HERE/scripts/lib/platform-src.sh"
 CLANGXX="$PS5_PAYLOAD_SDK/bin/prospero-clang++"
 ADDON="$HERE/addons/test.binary.ps5"
-ELFDIR="$HERE/overlay/xbmc/platform/ps5/elf"
+ELFDIR="$PLATFORM_SRC/xbmc/platform/ps5/elf"
 [ -x "$CLANGXX" ] || { echo "!! $CLANGXX not found"; exit 1; }
 
 echo "==> building test_binary_ps5.so"

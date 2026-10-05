@@ -78,3 +78,13 @@ imports. No generated object, no new data, nothing for the converter to choke
 on. DT pointers are handled whether link-time (static eboot) or pre-relocated.
 Host-verified against a program's own dynsym; tools/ps5-gen-addon-exports.py
 and host_exports.list are retired.
+
+## Diagnostics: klog, not CLog (2026-10-05)
+Three rounds of guards in `load()`/`resolve()` produced no output on the
+console because every message went through CLog, which buffers; a page fault
+right after kills the process before it flushes. The loader now writes an
+unbuffered `sceKernelDebugOutText` trace BEFORE each risky step: parse summary
+(dyn syms, rela/jmprel counts, strsz, map range, base, symtab/strtab), each
+relocation pass, and (with the kodi-debug switch, via `KODI_PS5_DEBUG`) every
+symbol resolve with its index and pointers. A crash now leaves the last line
+naming the step. Host-verified: the trace prints and the probe still passes.

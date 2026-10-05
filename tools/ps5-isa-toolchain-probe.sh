@@ -15,6 +15,7 @@
 set -uo pipefail
 export PS5_PAYLOAD_SDK="${PS5_PAYLOAD_SDK:-/opt/ps5-payload-sdk}"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+. "$HERE/scripts/lib/platform-src.sh"
 CLANGXX="$PS5_PAYLOAD_SDK/bin/prospero-clang++"
 WORK="${WORK:-$HOME/ps5-work}/isa-probe"
 mkdir -p "$WORK"; cd "$WORK"
@@ -144,10 +145,10 @@ echo "==> building the host harness against ps5elf"
 # include root that contains that path, and point the harness include at it too.
 INCROOT="$WORK/inc"
 mkdir -p "$INCROOT/platform/ps5/elf"
-cp "$HERE/overlay/xbmc/platform/ps5/elf/ElfLoader.h" "$INCROOT/platform/ps5/elf/"
+cp "$PLATFORM_SRC/xbmc/platform/ps5/elf/ElfLoader.h" "$INCROOT/platform/ps5/elf/"
 sed -i 's|#include "ElfLoader.h"|#include "platform/ps5/elf/ElfLoader.h"|' harness.cpp
 g++ -std=c++17 -O2 -I"$INCROOT" \
-  harness.cpp "$HERE/overlay/xbmc/platform/ps5/elf/ElfLoader.cpp" \
+  harness.cpp "$PLATFORM_SRC/xbmc/platform/ps5/elf/ElfLoader.cpp" \
   -ldl -o harness 2>harness.build.log || { echo "!! harness build failed"; cat harness.build.log; exit 1; }
 
 echo "==> loading probe.so through ps5elf:"

@@ -5,7 +5,10 @@
 #include "platform/ps5/elf/HostExports.h"
 #include "utils/log.h"
 
+#include <cstdio>
 #include <vector>
+
+extern "C" int sceKernelDebugOutText(int channel, const char* text);
 
 CPS5AddonLoader::CPS5AddonLoader(const std::string& so) : LibraryLoader(so)
 {
@@ -36,6 +39,9 @@ bool CPS5AddonLoader::Load()
   m_img = ps5elf::load(buf.data(), buf.size(), &host_export_resolver, nullptr, err, sizeof err);
   if (!m_img)
   {
+    char line[400];
+    std::snprintf(line, sizeof line, "[ps5elf] %s: %s\n", path.c_str(), err);
+    sceKernelDebugOutText(0, line); // unbuffered: survives a crash CLog would not
     CLog::Log(LOGERROR, "PS5AddonLoader: failed to load {}: {}", path, err);
     return false;
   }
@@ -50,7 +56,14 @@ bool CPS5AddonLoader::Load()
     CLog::Log(LOGWARNING, "PS5AddonLoader: {} has {} unhandled relocation(s)", path, st.other);
 
   // Run the add-on's constructors (C++ static initializers) before use.
+  {
+    char line[200];
+    std::snprintf(line, sizeof line, "[ps5elf] relocated OK (rel %u glob %u jmp %u); running constructors\n",
+                  st.relative, st.glob_dat, st.jump_slot);
+    sceKernelDebugOutText(0, line);
+  }
   ps5elf::run_init(m_img);
+  sceKernelDebugOutText(0, "[ps5elf] constructors done; add-on ready\n");
   m_loaded = true;
   CLog::Log(LOGDEBUG,
             "PS5AddonLoader: loaded {} (reloc: relative={} glob/64={} jmp={})",
